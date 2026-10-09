@@ -1,6 +1,6 @@
 // Tela HOJE: o que fazer hoje, o que atrasou e o que vem nos próximos 7 dias.
 import * as D from "../dados.js";
-import { esc, hoje, somarDias, dataLonga, saudacao, tituloDia, STATUS_ATIVOS } from "../util.js";
+import { esc, hoje, somarDias, dataLonga, saudacao, tituloDia, STATUS_ATIVOS, situacaoEvento, rotuloPeriodo } from "../util.js";
 import { listaTarefas, barraRapida, ligarBarraRapida } from "../componentes/tarefa.js";
 import { ICONES } from "../componentes/ui.js";
 
@@ -43,6 +43,13 @@ export function atualizar() {
   raiz.querySelector("#hoje-resumo").innerHTML = partes.join(" · ");
 
   let html = "";
+  const andamento = D.eventosEmAndamento();
+  if (andamento.length) {
+    html += `<div class="em-andamento">${andamento.map((p) => `
+      <a class="faixa-evento" href="#/projeto/${p.id}" style="--cor:${p.cor}">
+        <i class="ponto"></i><b>${esc(p.nome)}</b><span>${esc(situacaoEvento(p).texto)} · ${esc(rotuloPeriodo(p))}</span>
+      </a>`).join("")}</div>`;
+  }
   if (atrasadas.length) {
     html += secao("Atrasadas", listaTarefas(atrasadas), "atrasadas", atrasadas.length);
   }
@@ -76,7 +83,7 @@ function secao(titulo, conteudo, classe = "", contagem) {
 
 function datasDoDia(datas, d) {
   return datas.filter((x) => x.data === d).map((x) => `
-    <a class="data-importante" href="#/projeto/${x.projeto.id}" style="--cor:${x.projeto.cor}">
+    <a class="data-importante ${x.evento ? "evento-marco" : ""}" href="#/projeto/${x.projeto.id}" style="--cor:${x.projeto.cor}">
       ${ICONES.calendario}<span><b>${esc(x.titulo)}</b><small>${esc(x.projeto.nome)}</small></span>
     </a>`).join("");
 }

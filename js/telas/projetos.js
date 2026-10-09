@@ -1,6 +1,6 @@
 // Tela PROJETOS: lista de cartões e a página de cada projeto.
 import * as D from "../dados.js";
-import { esc, hoje, dataCurta, rotuloPrazo, corSuave, STATUS_PROJETO, CORES } from "../util.js";
+import { esc, hoje, dataCurta, rotuloPrazo, corSuave, STATUS_PROJETO, CORES, periodo, rotuloPeriodo, situacaoEvento } from "../util.js";
 import { listaTarefas, barraRapida, ligarBarraRapida, editarTarefa } from "../componentes/tarefa.js";
 import { ICONES, abrirModal, fecharModal, abrirMenu, avisar, confirmar } from "../componentes/ui.js";
 
@@ -64,8 +64,16 @@ function cartao(p) {
         <small>Próximo passo</small>
         <span>${pp ? esc(pp.texto) : "—"}${pp?.prazo ? ` <em class="${pp.prazo < hoje() ? "vermelho" : ""}">${esc(rotuloPrazo(pp.prazo))}</em>` : ""}</span>
       </div>
-      ${p.dataEvento ? `<p class="pequeno texto-suave evento">${ICONES.calendario}Evento: ${esc(dataCurta(p.dataEvento))}</p>` : ""}
+      ${linhaEvento(p, "p")}
     </a>`;
+}
+
+function linhaEvento(p, tag) {
+  const r = rotuloPeriodo(p);
+  if (!r) return "";
+  const sit = situacaoEvento(p);
+  const selo = sit && sit.tipo !== "depois" ? ` <b class="selo-evento ${sit.tipo}">${esc(sit.texto)}</b>` : "";
+  return `<${tag} class="pequeno texto-suave evento">${ICONES.calendario}Evento: ${esc(r)}${sit && sit.dias > 1 ? ` · ${sit.dias} dias` : ""}${selo}</${tag}>`;
 }
 
 // ================= DETALHE =================
@@ -161,7 +169,7 @@ function atualizarDetalhe() {
         <div class="linha-pilulas">
           <button type="button" class="pilula botao-pilula" data-det="status">${esc(p.status)}${ICONES.seta}</button>
           ${p.arquivado ? `<span class="pilula">Arquivado</span>` : ""}
-          ${p.dataEvento ? `<span class="texto-suave pequeno evento">${ICONES.calendario}Evento: ${esc(dataCurta(p.dataEvento))}</span>` : ""}
+          ${linhaEvento(p, "span")}
         </div>
       </div>
       <div class="acoes">
@@ -268,8 +276,11 @@ export function editarProjeto(id) {
         </label>
         <div class="grade-2">
           <label>Status<select class="campo" name="status">${STATUS_PROJETO.map((s) => `<option ${s === p.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
-          <label>Data do evento<input class="campo" type="date" name="dataEvento" value="${p.dataEvento || ""}"></label>
+          <span></span>
+          <label>Início do evento<input class="campo" type="date" name="dataInicio" value="${periodo(p)?.ini || ""}"></label>
+          <label>Fim do evento<input class="campo" type="date" name="dataFim" value="${(p.dataFim && periodo(p)?.fim) || ""}"></label>
         </div>
+        <small class="texto-suave dica-periodo">Colônias e eventos de vários dias: preencha início e fim. Se for um dia só, deixe o fim vazio.</small>
         <label>Fases <small class="texto-suave">uma por linha, na ordem em que acontecem</small>
           <textarea class="campo" name="fases" rows="5">${esc((p.fases || []).join("\n"))}</textarea></label>
         <label>Próximo passo <small class="texto-suave">deixe em branco para o app mostrar a próxima tarefa</small>
@@ -287,12 +298,21 @@ export function editarProjeto(id) {
       };
       m.querySelector("[data-cancelar]").onclick = fecharModal;
       const f = m.querySelector("form");
+      // ao escolher o início, o fim não pode ficar antes dele
+      f.dataInicio.onchange = () => {
+        f.dataFim.min = f.dataInicio.value;
+        if (f.dataFim.value && f.dataFim.value < f.dataInicio.value) f.dataFim.value = f.dataInicio.value;
+      };
+      if (f.dataInicio.value) f.dataFim.min = f.dataInicio.value;
       f.onsubmit = (e) => {
         e.preventDefault();
         const nome = f.nome.value.trim();
         if (!nome) return;
         const campos = {
-          nome, cor, status: f.status.value, dataEvento: f.dataEvento.value || null,
+          nome, cor, status: f.status.value,
+          dataInicio: f.dataInicio.value || null,
+          dataFim: f.dataInicio.value && f.dataFim.value && f.dataFim.value > f.dataInicio.value ? f.dataFim.value : null,
+          dataEvento: null,
           fases: f.fases.value.split("\n").map((s) => s.trim()).filter(Boolean),
           proximoPasso: f.proximoPasso.value.trim()
         };
