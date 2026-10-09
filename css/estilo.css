@@ -289,6 +289,16 @@ input[type=date].campo { min-width: 0; }
 .proximo em.vermelho { color: var(--vermelho); font-weight: 600; }
 .evento { display: inline-flex; align-items: center; gap: 6px; }
 .evento svg { width: 14px; height: 14px; }
+.selo-evento { font-weight: 600; font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--cinza); color: var(--suave); margin-left: 4px; }
+.selo-evento.durante { background: color-mix(in srgb, var(--cor) 18%, transparent); color: var(--texto); }
+.em-andamento { display: flex; flex-direction: column; gap: 8px; margin-bottom: 26px; }
+.faixa-evento {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 13px 16px; border-radius: 14px;
+  background: color-mix(in srgb, var(--cor) 14%, var(--cartao)); box-shadow: inset 4px 0 0 var(--cor);
+}
+.faixa-evento b { font-weight: 650; }
+.faixa-evento span { color: var(--suave); font-size: 13.5px; }
+.data-importante.evento-marco b::before { content: "★ "; color: var(--cor); }
 
 .voltar { display: inline-flex; align-items: center; gap: 2px; color: var(--azul); font-weight: 500; margin: -8px 0 14px -6px; }
 .voltar svg { width: 18px; height: 18px; }
@@ -470,3 +480,5 @@ input[type=date].campo { min-width: 0; }
   #toast { bottom: calc(146px + env(safe-area-inset-bottom)); }
   .campo { font-size: 16px; }
 }
+
+.dica-periodo { margin-top: -6px; font-size: 12.5px; }
