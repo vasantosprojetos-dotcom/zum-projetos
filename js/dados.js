@@ -1,7 +1,7 @@
 // Estado do app e todas as operações com projetos e tarefas.
 // As telas leem daqui e pedem mudanças por aqui; nunca falam direto com o Firebase.
 import * as fb from "./firebase.js";
-import { hoje, agora, diasEntre, CORES } from "./util.js";
+import { hoje, agora, diasEntre, CORES, periodo } from "./util.js";
 
 const estado = { projetos: [], tarefas: [], prontoP: false, prontoT: false };
 const ouvintes = new Set();
@@ -79,6 +79,12 @@ export function proximoPasso(p) {
 export function datasImportantes(de, ate) {
   const out = [];
   for (const p of projetosAtivos()) {
+    const per = periodo(p);
+    if (per) {
+      const umDia = per.ini === per.fim;
+      if (per.ini >= de && per.ini <= ate) out.push({ id: "ini", titulo: umDia ? "Dia do evento" : "Início do evento", data: per.ini, projeto: p, evento: true });
+      if (!umDia && per.fim >= de && per.fim <= ate) out.push({ id: "fim", titulo: "Último dia do evento", data: per.fim, projeto: p, evento: true });
+    }
     for (const d of p.datas || []) {
       if (d.data && d.data >= de && d.data <= ate) out.push({ ...d, projeto: p });
     }
@@ -90,6 +96,12 @@ export function lixeira() {
   const ps = estado.projetos.filter((p) => p.excluidoEm).map((p) => ({ tipo: "projeto", item: p, quando: p.excluidoEm }));
   const ts = estado.tarefas.filter((t) => t.excluidaEm).map((t) => ({ tipo: "tarefa", item: t, quando: t.excluidaEm }));
   return [...ps, ...ts].sort((a, b) => b.quando.localeCompare(a.quando));
+}
+
+// Projetos cujo evento está acontecendo hoje
+export function eventosEmAndamento() {
+  const h = hoje();
+  return projetosAtivos().filter((p) => { const per = periodo(p); return per && per.ini <= h && h <= per.fim; });
 }
 
 export const instantaneo = () => ({ projetos: estado.projetos, tarefas: estado.tarefas });
@@ -129,7 +141,8 @@ export function criarProjeto(campos) {
     nome: campos.nome.trim(),
     cor,
     status: campos.status || "Em negociação",
-    dataEvento: campos.dataEvento || null,
+    dataInicio: campos.dataInicio || null,
+    dataFim: campos.dataFim || null,
     fases: campos.fases || ["Planejamento", "Execução", "Pós-evento"],
     contatos: [],
     datas: [],

@@ -90,3 +90,34 @@ export function corSuave(hex, alfa = 0.12) {
 }
 
 export const agora = () => new Date().toISOString();
+
+// ---------- Período do evento ----------
+// Aceita projetos antigos que só tinham "dataEvento".
+export function periodo(p) {
+  const ini = p.dataInicio || p.dataEvento || null;
+  const fim = p.dataFim || ini;
+  return ini ? { ini, fim: fim < ini ? ini : fim } : null;
+}
+
+// "14 dez", "14 a 18 dez", "28 nov a 3 dez"
+export function rotuloPeriodo(p) {
+  const per = periodo(p);
+  if (!per) return "";
+  const { ini, fim } = per;
+  if (ini === fim) return dataCurta(ini);
+  const a = deISO(ini), b = deISO(fim);
+  if (a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()) return `${a.getDate()} a ${dataCurta(fim)}`;
+  return `${dataCurta(ini)} a ${dataCurta(fim)}`;
+}
+
+// Situação do evento em relação a hoje
+export function situacaoEvento(p) {
+  const per = periodo(p);
+  if (!per) return null;
+  const h = hoje();
+  const dias = diasEntre(per.ini, per.fim) + 1;
+  if (h < per.ini) { const n = diasEntre(h, per.ini); return { tipo: "antes", texto: n === 1 ? "começa amanhã" : `começa em ${n} dias`, dias }; }
+  if (h > per.fim) return { tipo: "depois", texto: "encerrado", dias };
+  const d = diasEntre(per.ini, h) + 1;
+  return { tipo: "durante", texto: dias > 1 ? `acontecendo · dia ${d} de ${dias}` : "acontecendo hoje", dias };
+}
