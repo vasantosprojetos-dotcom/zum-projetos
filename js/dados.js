@@ -306,7 +306,11 @@ export async function limparLixeiraAntiga() {
 // Copia projetos e tarefas da pasta antiga (só da Vanessa) para a pasta comum da Zum.
 // A pasta antiga NÃO é apagada: continua lá como cópia de segurança.
 export async function migrarSePreciso(u) {
-  const feito = await fb.lerUm("config", "migracao").catch(() => null);
+  // Só migra se o banco CONFIRMAR que a mudança nunca foi feita. Se a leitura falhar
+  // (internet instável, cache), não faz nada: migrar de novo sobrescreveria dados atuais.
+  let feito;
+  try { feito = await fb.lerUm("config", "migracao"); }
+  catch (e) { console.warn("Não deu para conferir a migração; seguindo sem migrar.", e); return { jaFeito: true }; }
   if (feito) return { jaFeito: true };
   const [projetos, tarefas] = await Promise.all([fb.lerAntigo("projetos"), fb.lerAntigo("tarefas")]);
   const ops = [];

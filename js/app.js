@@ -177,9 +177,8 @@ fb.aoMudarUsuario(async (u) => {
       const r = await D.migrarSePreciso(u);
       if (!r.jaFeito) avisar(`Dados movidos para a pasta da equipe: ${r.projetos} projetos, ${r.tarefas} tarefas.`);
     } catch (e) {
+      // A migração já foi feita antes; uma falha aqui (internet instável) não deve travar o app.
       console.error(e);
-      telaAviso("Falta um passo", "Não consegui preparar os dados para a equipe. Confira se as novas regras de segurança foram publicadas no Firebase e entre de novo.");
-      return;
     }
     const minha = await fb.lerUm("pessoas", u.email).catch(() => null);
     comecar({ email: u.email, nome: minha?.nome || "Vanessa", admin: true, colonias: [] });
