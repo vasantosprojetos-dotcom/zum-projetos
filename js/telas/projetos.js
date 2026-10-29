@@ -1,6 +1,6 @@
 // Tela PROJETOS: lista de cartões e a página de cada projeto.
 import * as D from "../dados.js";
-import { esc, hoje, dataCurta, rotuloPrazo, corSuave, STATUS_PROJETO, CORES, periodo, rotuloPeriodo, situacaoEvento } from "../util.js";
+import { esc, normalizar, hoje, dataCurta, rotuloPrazo, corSuave, STATUS_PROJETO, CORES, periodo, rotuloPeriodo, situacaoEvento } from "../util.js";
 import { listaTarefas, barraRapida, ligarBarraRapida, editarTarefa } from "../componentes/tarefa.js";
 import { ICONES, abrirModal, fecharModal, abrirMenu, avisar, confirmar } from "../componentes/ui.js";
 
@@ -268,8 +268,98 @@ function menuProjeto(ancora, p) {
       avisar(p.arquivado ? "Projeto de volta aos ativos" : "Projeto arquivado", { rotulo: "Desfazer", fn: () => D.arquivarProjeto(p.id, p.arquivado) });
     } },
     { separador: true },
+    { rotulo: "Remover tarefas repetidas", icone: ICONES.duplicadas, fn: () => removerRepetidas(p) },
+    { rotulo: "Mover tarefas para outro projeto", icone: ICONES.mover, fn: () => moverTarefas(p) },
+    { separador: true },
     { rotulo: "Excluir projeto", icone: ICONES.lixo, perigo: true, fn: () => excluir(p) }
   ]);
+}
+
+// ---------- Remover tarefas repetidas ----------
+const PESO_ROTULO = { concluida: "concluída", andamento: "em andamento", aguardando: "aguardando", naoSeAplica: "não se aplica", aFazer: "a fazer" };
+function removerRepetidas(p) {
+  const grupos = D.repetidasDoProjeto(p.id);
+  if (!grupos.length) { avisar("Nenhuma tarefa repetida neste projeto."); return; }
+  const total = grupos.reduce((n, g) => n + g.saem.length, 0);
+  abrirModal({
+    titulo: "Remover tarefas repetidas",
+    corpo: `<p class="texto-suave">Encontrei <b>${grupos.length}</b> tarefa${grupos.length > 1 ? "s" : ""} com cópia (mesmo nome na mesma fase). Fica uma de cada: a que andou mais ou foi mexida por último. As <b>${total}</b> cópias vão para a lixeira e podem ser recuperadas em Ajustes por 30 dias.</p>
+      <ul class="lista-simples lista-rolavel">${grupos.map((g) => `
+        <li><span class="flex1">${esc(g.fica.titulo)}<br><small class="texto-suave">${esc(g.fica.fase || "Sem fase")} · fica a ${esc(PESO_ROTULO[g.fica.status] || "a fazer")}</small></span>
+        <span class="pilula">${g.saem.length + 1}×</span></li>`).join("")}</ul>`,
+    rodape: `<span class="espaco"></span><button type="button" class="botao" data-cancelar>Cancelar</button>
+      <button type="button" class="botao perigo" data-ok>Remover ${total} cópia${total > 1 ? "s" : ""}</button>`,
+    aoMontar(m) {
+      m.querySelector("[data-cancelar]").onclick = fecharModal;
+      const ok = m.querySelector("[data-ok]");
+      ok.onclick = async () => {
+        ok.disabled = true;
+        try {
+          const n = await D.removerRepetidas(p.id);
+          fecharModal();
+          avisar(`${n} cópia${n > 1 ? "s" : ""} enviada${n > 1 ? "s" : ""} para a lixeira`);
+        } catch { ok.disabled = false; }
+      };
+    }
+  });
+}
+
+// ---------- Mover todas as tarefas ----------
+function moverTarefas(p) {
+  const total = D.tarefasDoProjeto(p.id).length;
+  if (!total) { avisar("Este projeto não tem tarefas para mover."); return; }
+  const outros = D.todosProjetos().filter((x) => x.id !== p.id);
+  // Projetos com nome parecido aparecem primeiro (é o caso das colônias criadas em dobro)
+  const base = (n) => normalizar(n.split(/[–—]| - /)[0]).replace(/\(.*?\)/g, "").replace(/\s+/g, " ").trim();
+  const minha = base(p.nome);
+  const parecidos = outros.filter((x) => { const b = base(x.nome); return b.length > 3 && minha.length > 3 && (b.includes(minha) || minha.includes(b)); });
+  const resto = outros.filter((x) => !parecidos.includes(x));
+  const opcao = (x) => `<option value="${x.id}">${esc(x.nome)}${x.tipo === "colonia" ? " (colônia)" : ""}${x.arquivado ? " · arquivado" : ""}</option>`;
+  abrirModal({
+    titulo: "Mover tarefas",
+    corpo: `<form class="formulario" id="form-mover">
+      <p class="texto-suave">Leva as <b>${total}</b> tarefas de “${esc(p.nome)}” para outro projeto, com comentários e histórico.</p>
+      <label>Para qual projeto?<select class="campo" name="destino" required>
+        <option value="" selected disabled>Escolha o projeto…</option>
+        ${parecidos.length ? `<optgroup label="Com nome parecido">${parecidos.map(opcao).join("")}</optgroup><optgroup label="Outros">${resto.map(opcao).join("")}</optgroup>` : outros.map(opcao).join("")}
+      </select></label>
+      <p class="pequeno" id="mover-previa"></p>
+      <label class="interruptor"><input type="checkbox" name="pular" checked><span></span>Não levar tarefas que o destino já tem (vão para a lixeira)</label>
+      <label class="interruptor"><input type="checkbox" name="excluir"><span></span>Depois, enviar “${esc(p.nome)}” para a lixeira</label>
+    </form>`,
+    rodape: `<span class="espaco"></span><button type="button" class="botao" data-cancelar>Cancelar</button>
+      <button type="submit" form="form-mover" class="botao primario">Mover tarefas</button>`,
+    aoMontar(m) {
+      m.querySelector("[data-cancelar]").onclick = fecharModal;
+      const f = m.querySelector("form");
+      const previa = m.querySelector("#mover-previa");
+      const mostrar = () => {
+        if (!f.destino.value) { previa.textContent = ""; return; }
+        const r = D.previaMover(p.id, f.destino.value);
+        const pular = f.pular.checked;
+        const vao = pular ? r.total - r.repetidas : r.total;
+        previa.innerHTML = `Vão <b>${vao}</b> tarefa${vao === 1 ? "" : "s"}`
+          + (r.repetidas ? (pular ? ` · <b>${r.repetidas}</b> já existem lá e vão para a lixeira` : ` · <b class="vermelho">${r.repetidas}</b> ficarão repetidas no destino`) : "")
+          + ".";
+      };
+      f.destino.onchange = mostrar;
+      f.pular.onchange = mostrar;
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const destino = f.destino.value;
+        if (!destino) return;
+        const botao = m.querySelector('[form="form-mover"]');
+        botao.disabled = true;
+        try {
+          const r = await D.moverTarefas(p.id, destino, { pularRepetidas: f.pular.checked, excluirOrigem: f.excluir.checked });
+          const sair = f.excluir.checked;
+          fecharModal();
+          if (sair) location.hash = `#/projeto/${destino}`;
+          avisar(`${r.movidas} tarefa${r.movidas === 1 ? "" : "s"} movida${r.movidas === 1 ? "" : "s"}${r.repetidas ? ` · ${r.repetidas} repetida${r.repetidas === 1 ? "" : "s"} na lixeira` : ""}`);
+        } catch { botao.disabled = false; }
+      };
+    }
+  });
 }
 
 async function excluir(p) {

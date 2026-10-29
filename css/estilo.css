@@ -506,3 +506,5 @@ input[type=date].campo { min-width: 0; }
 .caixa { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
 .imp-linha { flex-wrap: wrap; }
 .imp-linha select.campo { height: 36px; font-size: 14px; max-width: 280px; }
+.lista-rolavel { max-height: 46vh; overflow-y: auto; margin-top: 12px; }
+.imp-linha .pilula { white-space: normal; }

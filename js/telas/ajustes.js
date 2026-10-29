@@ -148,6 +148,7 @@ async function cliqueAjustes(e) {
 export function atualizar() {
   if (!raiz) return;
   desenharEquipe();
+  if (importacao && !importando) desenharImportacao();
   const itens = D.lixeira();
   raiz.querySelector("#lixeira").innerHTML = itens.length ? `<ul class="lista-simples">${itens.map(({ tipo, item, quando }) => {
     const resta = Math.max(0, 30 - diasEntre(quando.slice(0, 10), hoje()));
@@ -208,31 +209,70 @@ let importacao = null;
 function desenharImportacao() {
   const el = raiz.querySelector("#imp-previa");
   if (!importacao) { el.innerHTML = ""; return; }
-  const opcoes = (sug) => D.todosProjetos().map((p) =>
-    `<option value="${p.id}" ${sug && p.nome === sug ? "selected" : ""}>${esc(p.nome)}${p.tipo === "colonia" ? " (colônia)" : ""}</option>`).join("");
-  el.innerHTML = `<ul class="lista-simples">${importacao.edicoes.map((ed, i) => `
-    <li class="imp-linha"><span class="flex1"><b>${esc(ed.nome)}</b><br><small class="texto-suave">${ed.tarefas.length} tarefas · ${esc(ed.periodo || "")}</small></span>
-      ${ed.importada ? `<span class="pilula">Importada</span>` : `
-      <select class="campo" id="imp-dest-${i}"><option value="">Criar colônia nova: ${esc(ed.nomeSugerido || ed.nome)}</option>${opcoes()}</select>
-      <button type="button" class="botao pequeno primario" data-aj="importar" data-i="${i}">Importar</button>`}</li>`).join("")}</ul>
-    <p class="texto-suave pequeno">O responsável vem da planilha: “Vanessa” fica com você; os nomes da coordenação local vão para o coordenador cadastrado naquela colônia em Equipe (cadastre a equipe antes de importar).</p>`;
+  // Guarda o que já foi escolhido, para não perder a escolha quando os dados atualizam
+  const escolhidos = {};
+  el.querySelectorAll("select[id^='imp-dest-']").forEach((s) => { if (s.value) escolhidos[s.id] = s.value; });
+  // Nenhum destino vem marcado: você sempre escolhe. "Criar colônia nova" fica por último.
+  const opcoes = D.todosProjetos().map((p) =>
+    `<option value="${p.id}">${esc(p.nome)}${p.tipo === "colonia" ? " (colônia)" : ""}</option>`).join("");
+  el.innerHTML = `<ul class="lista-simples">${importacao.edicoes.map((ed, i) => {
+    const onde = D.ondeFoiImportada(ed.nome);
+    return `<li class="imp-linha"><span class="flex1"><b>${esc(ed.nome)}</b><br><small class="texto-suave">${ed.tarefas.length} tarefas · ${esc(ed.periodo || "")}</small></span>
+      ${onde.length ? `<span class="pilula" title="Para importar de novo, mande antes essas tarefas para a lixeira">Já importada em ${esc(onde.map((x) => x.projeto.nome).join(", "))}</span>` : `
+      <select class="campo" id="imp-dest-${i}" aria-label="Destino de ${esc(ed.nome)}">
+        <option value="" selected disabled>Escolha o destino…</option>${opcoes}
+        <option disabled>──────────</option>
+        <option value="__novo__">+ Criar colônia nova: ${esc(ed.nomeSugerido || ed.nome)}</option></select>
+      <button type="button" class="botao pequeno primario" data-aj="importar" data-i="${i}">Importar</button>`}</li>`;
+  }).join("")}</ul>
+    <p class="texto-suave pequeno">Cada edição só entra uma vez: o app reconhece o que já foi importado, mesmo depois de fechar, e pula as tarefas que o destino já tem com o mesmo nome e fase. O responsável vem da planilha: “Vanessa” fica com você; a coordenação local vai para o coordenador cadastrado naquela colônia em Equipe (cadastre a equipe antes de importar).</p>`;
+  for (const [id, v] of Object.entries(escolhidos)) {
+    const s = el.querySelector(`#${id}`);
+    if (s && [...s.options].some((o) => o.value === v)) s.value = v;
+  }
 }
 
+let importando = false;
 async function importar(i) {
+  if (importando) return;
   const ed = importacao.edicoes[i];
-  const destino = raiz.querySelector(`#imp-dest-${i}`).value || null;
-  const nomeDestino = destino ? D.projeto(destino).nome : (ed.nomeSugerido || ed.nome);
-  const jaTem = destino ? D.tarefasDoProjeto(destino).length : 0;
-  const ok = await confirmar({
-    titulo: "Importar tarefas?",
-    texto: `${ed.tarefas.length} tarefas de "${ed.nome}" vão para "${nomeDestino}"${jaTem ? `, que já tem ${jaTem} tarefas (as atuais ficam como estão)` : ""}. O projeto passa a ser uma colônia.`,
-    botao: "Importar"
-  });
+  const destino = raiz.querySelector(`#imp-dest-${i}`)?.value || "";
+  if (!destino) { avisar("Escolha para onde vão as tarefas antes de importar."); return; }
+  const onde = D.ondeFoiImportada(ed.nome);
+  if (onde.length) { avisar(`Essa edição já está em ${onde.map((x) => x.projeto.nome).join(", ")}.`); desenharImportacao(); return; }
+
+  let texto;
+  if (destino === "__novo__") {
+    const nome = ed.nomeSugerido || ed.nome;
+    const parecido = D.todosProjetos().find((p) => D.mesmoNome(p.nome, nome));
+    if (parecido) {
+      avisar(`Já existe um projeto chamado "${parecido.nome}". Escolha ele na lista em vez de criar outro.`);
+      return;
+    }
+    texto = `Vai ser criado um projeto NOVO, "${nome}", com ${ed.tarefas.length} tarefas de "${ed.nome}". Se essa colônia já existe no app, cancele e escolha ela na lista.`;
+  } else {
+    const p = D.projeto(destino);
+    const jaTem = D.tarefasDoProjeto(destino).length;
+    const iguais = D.jaExistemNoDestino(ed, destino);
+    const entram = ed.tarefas.length - iguais;
+    texto = `${entram} tarefas de "${ed.nome}" vão para "${p.nome}"`
+      + (jaTem ? `, que já tem ${jaTem}` : "")
+      + (iguais ? `. ${iguais} já existem lá com o mesmo nome e fase e serão puladas` : "")
+      + `. ${p.tipo === "colonia" ? "" : "O projeto passa a ser uma colônia."}`;
+    if (!entram) { avisar(`"${p.nome}" já tem todas as tarefas dessa edição. Nada a importar.`); return; }
+  }
+  const ok = await confirmar({ titulo: "Importar tarefas?", texto, botao: "Importar" });
   if (!ok) return;
+  importando = true;
+  raiz.querySelectorAll('[data-aj="importar"]').forEach((b) => (b.disabled = true));
   try {
     const r = await D.importarEdicao(ed, destino, ed.nomeSugerido);
-    ed.importada = true;
+    avisar(`${r.tarefas} tarefas importadas${r.puladas ? ` · ${r.puladas} já existiam` : ""}${r.local ? ` · coordenação: ${r.local}` : ""}`);
+  } catch (e) {
+    console.error(e);
+    avisar(e.message === "ja-importada" ? "Essa edição já foi importada." : "Não consegui importar. Nada foi perdido; tente de novo.");
+  } finally {
+    importando = false;
     desenharImportacao();
-    avisar(`${r.tarefas} tarefas importadas${r.local ? ` · coordenação: ${r.local}` : ""}`);
-  } catch (e) { console.error(e); avisar("Não consegui importar. Nada foi perdido; tente de novo."); }
+  }
 }

@@ -123,5 +123,7 @@ export const ICONES = {
   sair: svg(`<path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H15M10 16l4-4-4-4M14 12H4"/>`),
   check: svg(`<path d="M5 12.5l4.5 4.5L19 7.5"/>`, `stroke-width="2.4"`),
   lupa: svg(`<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>`),
+  duplicadas: svg(`<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/><path d="M11.5 14h5"/>`),
+  mover: svg(`<path d="M4 7h12M12 3l4 4-4 4"/><path d="M20 17H8M12 13l-4 4 4 4"/>`),
   mais3: svg(`<circle cx="6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18" cy="12" r="1.3" fill="currentColor"/>`)
 };

@@ -1,7 +1,7 @@
 // Estado do app e todas as operações com projetos, tarefas e equipe.
 // As telas leem daqui e pedem mudanças por aqui; nunca falam direto com o Firebase.
 import * as fb from "./firebase.js";
-import { hoje, agora, diasEntre, CORES, periodo, rotuloPrazo } from "./util.js";
+import { hoje, agora, diasEntre, CORES, periodo, rotuloPrazo, normalizar } from "./util.js";
 
 const estado = { projetos: [], tarefas: [], pessoas: [], prontoP: false, prontoT: false };
 const ouvintes = new Set();
@@ -349,9 +349,34 @@ export async function prepararPrimeiroUso() {
 // edicao: { nome, inicio, fim, fases:[...], tarefas:[{ titulo, fase, area, papel, apoio, prazo, prazoModelo,
 //           ancora, dias, status, notas }] }
 // papel: "direcao" (Vanessa) | "local" (coordenação da colônia) | "" (sem responsável)
+// Chave para comparar tarefas: título e fase, sem acento, maiúsculas ou espaços sobrando.
+const chaveTarefa = (t) => `${normalizar(t.titulo).replace(/\s+/g, " ").trim()}|${normalizar(t.fase || "").trim()}`;
+export const mesmoNome = (a, b) => normalizar(a).replace(/\s+/g, " ").trim() === normalizar(b).replace(/\s+/g, " ").trim();
+
+// Onde uma edição da planilha já foi importada (só conta o que não está na lixeira).
+// Devolve [{ projeto, tarefas }]
+export function ondeFoiImportada(nomeEdicao) {
+  const porProjeto = new Map();
+  for (const t of estado.tarefas) {
+    if (t.origem !== nomeEdicao || t.excluidaEm) continue;
+    const p = projeto(t.projetoId);
+    if (!p || p.excluidoEm) continue;
+    porProjeto.set(p.id, (porProjeto.get(p.id) || 0) + 1);
+  }
+  return [...porProjeto].map(([id, n]) => ({ projeto: projeto(id), tarefas: n }));
+}
+
+// Quantas tarefas da edição o destino já tem (mesmo título e fase).
+export function jaExistemNoDestino(edicao, destinoId) {
+  const tem = new Set(tarefasDoProjeto(destinoId).map(chaveTarefa));
+  return edicao.tarefas.filter((t) => tem.has(chaveTarefa(t))).length;
+}
+
 export async function importarEdicao(edicao, destinoId, novoNome) {
   if (!souAdmin()) throw new Error("so-admin");
-  let pid = destinoId;
+  if (destinoId !== "__novo__" && !projeto(destinoId)) throw new Error("sem-destino");
+  if (ondeFoiImportada(edicao.nome).length) throw new Error("ja-importada");
+  let pid = destinoId === "__novo__" ? null : destinoId;
   if (!pid) {
     pid = criarProjeto({ nome: novoNome || edicao.nome, tipo: "colonia", status: "Aprovado", fases: edicao.fases,
       dataInicio: edicao.inicio, dataFim: edicao.fim });
@@ -364,18 +389,112 @@ export async function importarEdicao(edicao, destinoId, novoNome) {
     await atualizarProjeto(pid, campos);
     await definirTipoProjeto(pid, "colonia");
   }
-  const local = estado.pessoas.find((x) => x.ativo !== false && x.papel !== "admin" && (x.colonias || []).includes(pid));
+  const local = coordenadorLocal(pid);
   const quem = (papel) => (papel === "direcao" ? perfil.email : papel === "local" ? (local?.id || perfil.email) : "");
-  const ops = edicao.tarefas.map((t, i) => ({
-    tipo: "set", col: "tarefas", id: fb.novoId("tarefas"), dados: {
+  // Nunca repete: pula o que o destino já tem com o mesmo título e fase.
+  const tem = new Set(tarefasDoProjeto(pid).map(chaveTarefa));
+  const ops = [];
+  let puladas = 0;
+  edicao.tarefas.forEach((t, i) => {
+    const k = chaveTarefa(t);
+    if (tem.has(k)) { puladas++; return; }
+    tem.add(k);
+    ops.push({ tipo: "set", col: "tarefas", id: fb.novoId("tarefas"), dados: {
       titulo: t.titulo, projetoId: pid, coloniaId: pid, fase: t.fase || "", area: t.area || "",
       prazo: t.prazo || null, prazoModelo: t.prazoModelo || null, ancora: t.ancora || "", dias: t.dias ?? null,
-      prioridade: "normal", status: t.status || "aFazer", responsavel: quem(t.papel), apoio: t.apoio || "",
+      prioridade: "normal", status: t.status || "aFazer", responsavel: quem(t.papel), papel: t.papel || "", apoio: t.apoio || "",
       notas: t.notas || "", concluidaEm: t.status === "concluida" ? agora() : null, excluidaEm: null,
       ordemModelo: i, origem: edicao.nome,
       criadaPor: perfil.email, criadaEm: agora(), atualizadaPor: perfil.email, atualizadaEm: agora()
-    }
-  }));
+    } });
+  });
+  const p = projeto(pid);
+  ops.push({ tipo: "merge", col: "projetos", id: pid, dados: {
+    importacoes: [...(p?.importacoes || []), { origem: edicao.nome, em: agora(), tarefas: ops.length }]
+  } });
   await gravar(fb.emLote(ops));
-  return { projetoId: pid, tarefas: ops.length, local: local?.nome || null };
+  return { projetoId: pid, tarefas: ops.length - 1, puladas, local: local?.nome || null };
+}
+
+const coordenadorLocal = (pid) =>
+  estado.pessoas.find((x) => x.ativo !== false && x.papel !== "admin" && (x.colonias || []).includes(pid)) || null;
+
+// ---------------- Tarefas repetidas ----------------
+// Tarefas com o mesmo título na mesma fase. Fica a que andou mais (concluída > em andamento >
+// aguardando > a fazer); no empate, a mexida por último. As outras vão para a lixeira.
+const PESO_STATUS = { concluida: 0, naoSeAplica: 1, andamento: 2, aguardando: 3, aFazer: 4 };
+function melhorPrimeiro(a, b) {
+  return (PESO_STATUS[a.status] ?? 4) - (PESO_STATUS[b.status] ?? 4)
+    || (b.atualizadaEm || "").localeCompare(a.atualizadaEm || "")
+    || (a.criadaEm || "").localeCompare(b.criadaEm || "");
+}
+
+export function repetidasDoProjeto(pid) {
+  const grupos = new Map();
+  for (const t of tarefasDoProjeto(pid)) {
+    const k = chaveTarefa(t);
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push(t);
+  }
+  return [...grupos.values()].filter((g) => g.length > 1).map((g) => {
+    const [fica, ...saem] = [...g].sort(melhorPrimeiro);
+    return { fica, saem };
+  });
+}
+
+export async function removerRepetidas(pid) {
+  if (!souAdmin()) throw new Error("so-admin");
+  const saem = repetidasDoProjeto(pid).flatMap((g) => g.saem);
+  const quando = agora();
+  await gravar(fb.emLote(saem.map((t) => ({ tipo: "merge", col: "tarefas", id: t.id,
+    dados: { excluidaEm: quando, atualizadaPor: perfil.email, atualizadaEm: quando } }))));
+  saem.forEach((t) => registro(t.id, "excluiu", "enviou para a lixeira (tarefa repetida)"));
+  return saem.length;
+}
+
+// ---------------- Mover tarefas entre projetos ----------------
+// Leva todas as tarefas (fora da lixeira) de um projeto para outro.
+// pularRepetidas: o que o destino já tem com mesmo título e fase vai para a lixeira em vez de ser levado.
+export function previaMover(origemId, destinoId) {
+  const tem = new Set(tarefasDoProjeto(destinoId).map(chaveTarefa));
+  const ts = tarefasDoProjeto(origemId);
+  const repetidas = ts.filter((t) => tem.has(chaveTarefa(t))).length;
+  return { total: ts.length, repetidas };
+}
+
+export async function moverTarefas(origemId, destinoId, { pularRepetidas = true, excluirOrigem = false } = {}) {
+  if (!souAdmin()) throw new Error("so-admin");
+  const de = projeto(origemId), para = projeto(destinoId);
+  if (!de || !para || origemId === destinoId) throw new Error("destino");
+  const coloniaId = coloniaDe(destinoId);
+  const local = coordenadorLocal(destinoId);
+  const tem = new Set(tarefasDoProjeto(destinoId).map(chaveTarefa));
+  const quando = agora();
+  const ops = [], movidas = [], repetidas = [];
+  for (const t of tarefasDoProjeto(origemId)) {
+    const k = chaveTarefa(t);
+    if (pularRepetidas && tem.has(k)) {
+      repetidas.push(t);
+      ops.push({ tipo: "merge", col: "tarefas", id: t.id, dados: { excluidaEm: quando, atualizadaPor: perfil.email, atualizadaEm: quando } });
+      continue;
+    }
+    tem.add(k);
+    movidas.push(t);
+    const dados = { projetoId: destinoId, coloniaId, atualizadaPor: perfil.email, atualizadaEm: quando };
+    // Tarefas da coordenação local passam para o coordenador da colônia de destino
+    if (t.papel === "local" && local) dados.responsavel = local.id;
+    ops.push({ tipo: "merge", col: "tarefas", id: t.id, dados });
+  }
+  // As fases da origem que o destino não tem passam a existir nele
+  const fases = [...(para.fases || [])];
+  for (const t of movidas) if (t.fase && !fases.includes(t.fase)) fases.push(t.fase);
+  const camposDestino = { fases, atualizadoEm: quando };
+  if (!para.dataInicio && de.dataInicio) { camposDestino.dataInicio = de.dataInicio; camposDestino.dataFim = de.dataFim || null; }
+  if (de.importacoes?.length) camposDestino.importacoes = [...(para.importacoes || []), ...de.importacoes];
+  ops.push({ tipo: "merge", col: "projetos", id: destinoId, dados: camposDestino });
+  if (excluirOrigem) ops.push({ tipo: "merge", col: "projetos", id: origemId, dados: { excluidoEm: quando, atualizadoEm: quando } });
+  await gravar(fb.emLote(ops));
+  movidas.forEach((t) => registro(t.id, "mudou", `moveu de “${de.nome}” para “${para.nome}”`));
+  repetidas.forEach((t) => registro(t.id, "excluiu", `enviou para a lixeira (já existia em “${para.nome}”)`));
+  return { movidas: movidas.length, repetidas: repetidas.length };
 }
