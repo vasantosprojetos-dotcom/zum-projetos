@@ -44,7 +44,7 @@ export function montar(el) {
     </section>` : ""}
 
     <section class="painel largo">
-      <div class="painel-topo"><h3>${ICONES.lixo}Lixeira</h3></div>
+      <div class="painel-topo"><h3>${ICONES.lixo}Lixeira</h3>${admin ? `<button type="button" class="botao pequeno perigo" data-aj="esvaziar" id="bt-esvaziar">Esvaziar lixeira</button>` : ""}</div>
       <p class="texto-suave pequeno">${admin ? "Tarefas e projetos excluídos ficam aqui por 30 dias antes de sumirem de vez." : "Tarefas excluídas ficam aqui até a Vanessa esvaziar a lixeira. Você pode recuperar qualquer uma."}</p>
       <div id="lixeira"></div>
     </section>
@@ -140,6 +140,18 @@ async function cliqueAjustes(e) {
   } else if (acao === "recuperar") {
     D.restaurar(b.dataset.tipo, b.dataset.id);
     avisar("Recuperado");
+  } else if (acao === "esvaziar") {
+    const itens = D.lixeira();
+    if (!itens.length) { avisar("A lixeira já está vazia."); return; }
+    const np = itens.filter((x) => x.tipo === "projeto").length, nt = itens.length - np;
+    const ok = await confirmar({ titulo: "Esvaziar a lixeira?",
+      texto: `${nt} tarefa${nt === 1 ? "" : "s"}${np ? ` e ${np} projeto${np === 1 ? "" : "s"}` : ""} vão ser apagados de vez. Isso não pode ser desfeito. Se quiser garantia, antes baixe um backup (.json) aqui em cima.`,
+      botao: "Esvaziar", perigo: true });
+    if (!ok) return;
+    b.disabled = true;
+    try { const n = await D.esvaziarLixeira(); avisar(`Lixeira esvaziada: ${n} itens apagados`); }
+    catch (err) { console.error(err); avisar("Não consegui esvaziar. Nada foi apagado; tente de novo."); }
+    finally { b.disabled = false; }
   } else if (acao === "apagar") {
     if (!D.souAdmin()) return;
     const ok = await confirmar({ titulo: "Apagar de vez?", texto: "Isso não pode ser desfeito.", botao: "Apagar", perigo: true });

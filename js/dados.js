@@ -299,6 +299,22 @@ export async function excluirDefinitivo(tipo, id) {
   return gravar(fb.emLote(ops));
 }
 
+// Esvazia a lixeira inteira de uma vez (só a administradora).
+export async function esvaziarLixeira() {
+  if (!souAdmin()) throw new Error("so-admin");
+  const itens = lixeira();
+  const ids = new Set();
+  const ops = [];
+  for (const { tipo, item } of itens) {
+    if (tipo === "projeto") {
+      for (const t of estado.tarefas.filter((t) => t.projetoId === item.id)) if (!ids.has(t.id)) { ids.add(t.id); ops.push({ tipo: "delete", col: "tarefas", id: t.id }); }
+      ops.push({ tipo: "delete", col: "projetos", id: item.id });
+    } else if (!ids.has(item.id)) { ids.add(item.id); ops.push({ tipo: "delete", col: "tarefas", id: item.id }); }
+  }
+  await gravar(fb.emLote(ops));
+  return itens.length;
+}
+
 // Apaga de vez o que está na lixeira há mais de 30 dias (só a administradora).
 export async function limparLixeiraAntiga() {
   if (!souAdmin()) return;
