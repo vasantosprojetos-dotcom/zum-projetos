@@ -106,6 +106,9 @@ function montarDetalhe() {
         <div id="det-fases"></div>
       </div>
       <aside class="det-lateral">
+        <section class="painel" id="det-edicoes-painel" hidden><div class="painel-topo"><h3>${ICONES.calendario}Edições</h3></div>
+          <div id="det-edicoes"></div>
+        </section>
         <section class="painel" id="det-equipe-painel" hidden><div class="painel-topo"><h3>${ICONES.pessoa}Equipe</h3></div>
           <div id="det-equipe"></div>
         </section>
@@ -164,6 +167,8 @@ function cliqueDetalhe(e) {
   else if (acao === "tirar-data") D.atualizarProjeto(p.id, { datas: (p.datas || []).filter((d) => d.id !== b.dataset.id) });
   else if (acao === "editar-contato") editarContato(+b.dataset.i);
   else if (acao === "status") menuStatus(b, p);
+  else if (acao === "nova-edicao") novaEdicao(p);
+  else if (acao === "ver-edicao") verEdicao(p, b.dataset.nome);
 }
 
 function atualizarDetalhe() {
@@ -187,6 +192,7 @@ function atualizarDetalhe() {
         </div>
       </div>
       <div class="acoes">
+        ${D.souAdmin() && p.tipo === "colonia" ? `<button type="button" class="botao" data-det="nova-edicao">${ICONES.mais}Nova edição</button>` : ""}
         <button type="button" class="botao" data-det="editar">${ICONES.lapis}Editar</button>
         ${D.souAdmin() ? `<button type="button" class="botao-icone" data-det="mais" aria-label="Mais opções">${ICONES.mais3}</button>` : ""}
       </div>
@@ -219,6 +225,19 @@ function atualizarDetalhe() {
       ${mostrar.length ? listaTarefas(mostrar, { mostrarProjeto: false }) : `<p class="fase-vazia">${completa ? "Fase concluída ✓" : "Nenhuma tarefa nesta fase."}</p>`}
     </section>`;
   }).join("") || `<div class="vazio"><p>Crie fases em Editar ou adicione tarefas acima.</p></div>`;
+
+  // Edições da colônia
+  const painelEd = raiz.querySelector("#det-edicoes-painel");
+  const anteriores = D.edicoesAnteriores(p);
+  const atual = D.nomeEdicaoAtual(p);
+  if (p.tipo === "colonia" && (atual || anteriores.length)) {
+    painelEd.hidden = false;
+    raiz.querySelector("#det-edicoes").innerHTML = `<ul class="lista-simples">
+      ${atual ? `<li><span class="flex1"><b>${esc(atual)}</b><br><small class="texto-suave">em andamento${rotuloPeriodo(p) ? ` · ${esc(rotuloPeriodo(p))}` : ""}</small></span><span class="pilula">atual</span></li>` : ""}
+      ${anteriores.map((e) => `<li><button type="button" class="contato" data-det="ver-edicao" data-nome="${esc(e.nome)}">
+        <b>${esc(e.nome)}</b><small>${e.inicio ? esc(dataCurta(e.inicio)) + (e.fim && e.fim !== e.inicio ? ` a ${esc(dataCurta(e.fim))}` : "") + " · " : ""}${e.feitas}/${e.total} concluídas · encerrada</small></button></li>`).join("")}
+    </ul>`;
+  } else painelEd.hidden = true;
 
   // Equipe da colônia
   const painelEq = raiz.querySelector("#det-equipe-painel");
@@ -521,5 +540,95 @@ async function organizarRede(p) {
         } catch { ok.disabled = false; }
       };
     }
+  });
+}
+
+// ---------- Nova edição ----------
+const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+const sugerirNome = (ini) => (ini ? `${MESES[+ini.slice(5, 7) - 1]}/${ini.slice(2, 4)}` : "");
+
+function novaEdicao(p) {
+  const ms = D.modelos();
+  const atual = D.nomeEdicaoAtual(p);
+  const tarefasAtuais = D.tarefasDoProjeto(p.id);
+  const manuaisAbertas = tarefasAtuais.filter((t) => !t.origem && !t.modeloId && D.aberta(t));
+  const modeloPadrao = p.edicaoAtual?.modelo || (/smel|itabira/i.test(p.nome) ? "smel" : "escola");
+  abrirModal({
+    titulo: `Nova edição · ${p.nome}`,
+    corpo: `<form class="formulario" id="form-edicao" autocomplete="off">
+      <div class="grade-2">
+        <label>Modelo<select class="campo" name="modelo">${ms.map((m) => `<option value="${m.id}" ${m.id === modeloPadrao ? "selected" : ""}>${esc(m.nome)} (${m.tarefas.length} tarefas)</option>`).join("")}</select></label>
+        <label>Nome da nova edição<input class="campo" name="nome" placeholder="Ex.: Jul/27" required></label>
+        <label>Primeiro dia<input class="campo" type="date" name="inicio" required></label>
+        <label>Último dia<input class="campo" type="date" name="fim"></label>
+        <label>Início da semana 2 <small class="texto-suave">se houver</small><input class="campo" type="date" name="semana2"></label>
+        <span></span>
+      </div>
+      ${tarefasAtuais.length ? `<fieldset class="caixas"><legend>Edição atual</legend>
+        <label>Nome da edição que vai ser encerrada<input class="campo" name="anterior" value="${esc(atual)}" placeholder="Ex.: Dez/26" required></label>
+        <small class="texto-suave">As ${tarefasAtuais.length} tarefas dela saem do dia a dia e ficam guardadas para consulta e para o relatório.</small>
+        ${(p.dataFim || p.dataInicio) && (p.dataFim || p.dataInicio) >= hoje() ? `<p class="pequeno vermelho"><b>Atenção:</b> a edição atual ainda não aconteceu (${esc(rotuloPeriodo(p))}). Só crie a nova edição depois que ela terminar.</p>` : ""}
+        ${manuaisAbertas.length ? `<label class="interruptor"><input type="checkbox" name="levar" checked><span></span>Levar para a nova edição as ${manuaisAbertas.length} tarefas abertas criadas à mão (fora do checklist)</label>` : ""}
+      </fieldset>` : ""}
+      <div class="previa-edicao" id="ed-previa"><p class="texto-suave pequeno">Escolha as datas para ver como fica.</p></div>
+    </form>`,
+    rodape: `<span class="espaco"></span><button type="button" class="botao" data-cancelar>Cancelar</button>
+      <button type="submit" form="form-edicao" class="botao primario">Criar edição</button>`,
+    aoMontar(m) {
+      const f = m.querySelector("form");
+      const previa = m.querySelector("#ed-previa");
+      let nomeMexido = false;
+      f.nome.oninput = () => { nomeMexido = true; };
+      const datas = () => ({ inicio: f.inicio.value, fim: f.fim.value || f.inicio.value, semana2: f.semana2.value || null });
+      const mostrar = () => {
+        if (f.inicio.value && !nomeMexido) f.nome.value = sugerirNome(f.inicio.value);
+        if (f.inicio.value) { f.fim.min = f.inicio.value; f.semana2.min = f.inicio.value; }
+        if (!f.inicio.value) { previa.innerHTML = `<p class="texto-suave pequeno">Escolha as datas para ver como fica.</p>`; return; }
+        const ts = D.previaEdicao(p.id, f.modelo.value, datas());
+        const h = hoje();
+        const atrasadas = ts.filter((t) => t.prazo && t.prazo < h).length;
+        const prox = [...ts].filter((t) => t.prazo >= h).sort((a, b) => a.prazo.localeCompare(b.prazo)).slice(0, 4);
+        const usaS2 = ts.some((t) => t.ancora === "Semana 2");
+        previa.innerHTML = `<p class="pequeno">Vão ser criadas <b>${ts.length}</b> tarefas, com o responsável de cada uma já definido.</p>
+          ${atrasadas ? `<p class="pequeno vermelho"><b>${atrasadas}</b> já nasceriam atrasadas (prazo antes de hoje). Se a colônia estiver perto, ajuste esses prazos depois de criar.</p>` : ""}
+          ${usaS2 && !f.semana2.value ? `<p class="pequeno texto-suave">Este modelo tem tarefas da semana 2. Sem a data, elas contam a partir do primeiro dia.</p>` : ""}
+          ${prox.length ? `<ul class="lista-simples">${prox.map((t) => `<li><span class="data-tag">${esc(dataCurta(t.prazo))}</span><span class="flex1">${esc(t.titulo)}</span></li>`).join("")}</ul>` : ""}`;
+      };
+      ["modelo", "inicio", "fim", "semana2"].forEach((n) => (f[n].onchange = mostrar));
+      m.querySelector("[data-cancelar]").onclick = fecharModal;
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const botao = m.querySelector('[form="form-edicao"]');
+        const nome = f.nome.value.trim();
+        const anterior = f.anterior ? f.anterior.value.trim() : "";
+        if (f.fim.value && f.fim.value < f.inicio.value) { avisar("O último dia não pode ser antes do primeiro."); return; }
+        if (anterior && anterior === nome) { avisar("A nova edição precisa de um nome diferente da atual."); return; }
+        botao.disabled = true;
+        try {
+          const r = await D.novaEdicao(p.id, { nome, modeloId: f.modelo.value, ...datas(), fim: f.fim.value || null,
+            nomeAnterior: anterior, levarAbertas: f.levar ? f.levar.checked : false });
+          fecharModal();
+          avisar(`Edição ${nome} criada: ${r.criadas} tarefas${r.encerradas ? ` · ${anterior} encerrada` : ""}`);
+        } catch (err) {
+          botao.disabled = false;
+          avisar(err.message === "nome-repetido" ? "Já existe uma edição com esse nome nesta colônia." : "Não consegui criar a edição. Nada foi mudado; tente de novo.");
+        }
+      };
+    }
+  });
+}
+
+function verEdicao(p, nome) {
+  const e = (p.edicoes || []).find((x) => x.nome === nome);
+  const ts = D.ordenarTarefas(D.tarefasDaEdicao(p.id, nome));
+  const fases = [...new Set(ts.map((t) => t.fase || "Sem fase"))];
+  abrirModal({
+    titulo: `${p.nome} · ${nome}`,
+    corpo: `<p class="texto-suave">Edição encerrada${e?.inicio ? ` · ${esc(dataCurta(e.inicio))}${e.fim && e.fim !== e.inicio ? ` a ${esc(dataCurta(e.fim))}` : ""}` : ""} · <b>${e?.feitas ?? 0} de ${e?.total ?? ts.length}</b> tarefas concluídas.</p>
+      ${fases.map((f) => `<h4>${esc(f)}</h4><ul class="lista-simples">${ts.filter((t) => (t.fase || "Sem fase") === f).map((t) => `
+        <li><span class="flex1">${esc(t.titulo)}</span><small class="texto-suave">${t.status === "concluida" ? "concluída" : t.status === "naoSeAplica" ? "não se aplicou" : "ficou aberta"}</small></li>`).join("")}</ul>`).join("")
+        || `<p class="texto-suave pequeno">Nenhuma tarefa guardada desta edição.</p>`}`,
+    rodape: `<span class="espaco"></span><button type="button" class="botao" data-cancelar>Fechar</button>`,
+    aoMontar(m) { m.querySelector("[data-cancelar]").onclick = fecharModal; }
   });
 }

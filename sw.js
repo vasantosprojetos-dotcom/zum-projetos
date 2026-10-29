@@ -1,12 +1,13 @@
 // Service worker: permite instalar o app no iPhone/computador e abrir sem internet.
 // Estratégia "rede primeiro": sempre busca a versão mais nova; usa a cópia guardada só se estiver offline.
 // Os DADOS não passam por aqui (ficam no Firebase), então atualizar o app nunca apaga nada.
-const CACHE = "zum-projetos-v8";
+const CACHE = "zum-projetos-v9";
 const ARQUIVOS = [
   "./", "index.html", "manifest.json", "css/estilo.css",
   "js/app.js", "js/firebase.js", "js/firebase-config.js", "js/dados.js", "js/backup.js", "js/util.js", "js/versao.js",
   "js/componentes/ui.js", "js/componentes/tarefa.js",
-  "js/telas/hoje.js", "js/telas/projetos.js", "js/telas/tarefas.js", "js/telas/ajustes.js",
+  "js/telas/hoje.js", "js/telas/projetos.js", "js/telas/tarefas.js", "js/telas/ajustes.js", "js/telas/modelos.js",
+  "js/prazos.js", "js/modelos-iniciais.js",
   "icones/icone-192.png", "icones/icone-512.png", "icones/apple-touch-icon.png"
 ];
 

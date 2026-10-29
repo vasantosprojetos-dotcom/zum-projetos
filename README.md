@@ -27,3 +27,11 @@ App de tarefas e projetos da Zum Recreação.
 | `js/componentes/` | Peças reaproveitadas (linha de tarefa, janelas, avisos) |
 | `css/estilo.css` | Todo o visual |
 | `js/versao.js` | Número da versão (mude a cada publicação) |
+
+## Modelos e edições (versão 2.3)
+
+- **Modelos** (menu da Vanessa): Modelo Escola e Modelo SMEL, vindos da planilha. Cada tarefa tem responsável por papel (direção ou coordenação local) e prazo = âncora + dias. Âncoras: Início, Término, Semana 2, Sáb. antes.
+- **Feriados** (fim da tela Modelos): prazo que cai em fim de semana ou feriado volta para o dia útil anterior, igual à planilha.
+- **Nova edição** (dentro de cada colônia): escolhe o modelo e as datas, encerra a edição atual (as tarefas ficam guardadas em "Edições") e gera as novas tarefas com responsáveis.
+- **Painel da temporada** (tela Hoje da Vanessa): edições em andamento e carga por semana (20 ou mais tarefas = semana pesada).
+- Modelos e feriados ficam em `config/modelos` e `config/feriados` no Firebase (regras já cobrem; só a Vanessa lê e escreve).

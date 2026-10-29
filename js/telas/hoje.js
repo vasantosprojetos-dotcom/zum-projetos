@@ -1,6 +1,6 @@
 // Tela HOJE: o que fazer hoje, o que atrasou e o que vem nos próximos 7 dias.
 import * as D from "../dados.js";
-import { esc, hoje, somarDias, dataLonga, saudacao, tituloDia, STATUS_ATIVOS, situacaoEvento, rotuloPeriodo } from "../util.js";
+import { esc, hoje, somarDias, dataLonga, saudacao, tituloDia, STATUS_ATIVOS, situacaoEvento, rotuloPeriodo, dataCurta } from "../util.js";
 import { listaTarefas, barraRapida, ligarBarraRapida } from "../componentes/tarefa.js";
 import { ICONES } from "../componentes/ui.js";
 
@@ -82,6 +82,7 @@ export function atualizar() {
       <p class="texto-suave pequeno">Tarefas de outras pessoas que vencem até ${esc(tituloDia(fim).toLowerCase())}.</p>
       ${listaTarefas(daEquipe, { mostrarResponsavel: true })}</details>`;
   }
+  if (D.souAdmin()) html = painelTemporada() + html;
   raiz.querySelector("#hoje-tarefas").innerHTML = html;
   raiz.querySelector("#hoje-projetos").innerHTML = resumoProjetos();
 }
@@ -110,4 +111,48 @@ function resumoProjetos() {
         <small>${pp ? esc(pp.texto) : "Sem próximo passo definido"}</small>
       </a>`;
     }).join("")}</div></section>`;
+}
+
+// ---------- Painel da temporada (só a Vanessa) ----------
+let painelAberto = true;
+try { painelAberto = localStorage.getItem("zum-painel") !== "fechado"; } catch {}
+document.addEventListener("toggle", (e) => {
+  if (e.target.id === "painel-temporada") try { localStorage.setItem("zum-painel", e.target.open ? "aberto" : "fechado"); } catch {}
+}, true);
+
+function painelTemporada() {
+  const eds = D.edicoesEmAndamento();
+  if (!eds.length) return "";
+  const h = hoje();
+  const semanas = D.cargaPorSemana(10);
+  const max = Math.max(D.LIMITE_SEMANA_PESADA, ...semanas.map((s) => s.total));
+  const pesadas = semanas.filter((s) => s.total >= D.LIMITE_SEMANA_PESADA).length;
+  const linhas = eds.map((e) => {
+    const faltam = e.inicio > h ? `${e.faltam} dia${e.faltam === 1 ? "" : "s"}` : e.fim >= h ? "acontecendo" : "encerrada";
+    return `<a class="painel-linha" href="#/projeto/${e.p.id}" style="--cor:${e.p.cor}">
+      <span class="pl-nome"><i class="ponto"></i><b>${esc(e.p.nome)}</b><small>${esc(e.edicao || "")}${e.edicao ? " · " : ""}${esc(dataCurta(e.inicio))}${e.fim !== e.inicio ? ` a ${esc(dataCurta(e.fim))}` : ""}</small></span>
+      <span class="pl-num"><b>${esc(faltam)}</b><small>para começar</small></span>
+      <span class="pl-barra"><div class="barra"><div style="width:${e.pct}%"></div></div><small>${e.feitas}/${e.total} · ${e.pct}%</small></span>
+      <span class="pl-num ${e.atrasadas ? "vermelho" : ""}"><b>${e.atrasadas}</b><small>atrasadas</small></span>
+      <span class="pl-num"><b>${e.semana}</b><small>esta semana</small></span>
+    </a>`;
+  }).join("");
+  const nomes = Object.fromEntries(D.colonias().map((c) => [c.id, c.nome]));
+  const barras = semanas.map((s, i) => {
+    const pesada = s.total >= D.LIMITE_SEMANA_PESADA;
+    const det = Object.entries(s.porColonia).sort((a, b) => b[1] - a[1]).map(([id, n]) => `${nomes[id] || "?"}: ${n}`).join("\n");
+    const exec = s.emExecucao.map((c) => c.nome).join(", ");
+    return `<div class="carga-semana ${pesada ? "pesada" : ""}" title="${esc(det || "Nenhuma tarefa")}">
+      <span class="carga-rotulo">${i === 0 ? "Esta semana" : esc(dataCurta(s.de))}</span>
+      <span class="carga-trilho"><span style="width:${Math.round((s.total / max) * 100)}%"></span></span>
+      <b>${s.total}</b>
+      <small class="carga-exec">${exec ? `${ICONES.calendario}${esc(exec)}` : ""}</small>
+    </div>`;
+  }).join("");
+  return `<details class="secao recolhivel painel-temporada" id="painel-temporada" ${painelAberto ? "open" : ""}>
+    <summary><h2>Painel da temporada</h2><span class="contagem">${eds.length}</span>${pesadas ? `<span class="pilula vermelha">${pesadas} semana${pesadas > 1 ? "s" : ""} pesada${pesadas > 1 ? "s" : ""}</span>` : ""}${ICONES.seta}</summary>
+    <div class="painel-linhas">${linhas}</div>
+    <h3 class="carga-titulo">Carga por semana <small class="texto-suave">tarefas abertas que vencem em cada semana, somando as colônias · vermelho = ${D.LIMITE_SEMANA_PESADA} ou mais (redistribuir ou antecipar)</small></h3>
+    <div class="carga">${barras}</div>
+  </details>`;
 }

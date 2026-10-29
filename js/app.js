@@ -10,9 +10,10 @@ import * as Hoje from "./telas/hoje.js";
 import * as Projetos from "./telas/projetos.js";
 import * as Tarefas from "./telas/tarefas.js";
 import * as Ajustes from "./telas/ajustes.js";
+import * as Modelos from "./telas/modelos.js";
 
 const app = document.getElementById("app");
-const TELAS = { hoje: Hoje, projetos: Projetos, projeto: Projetos, tarefas: Tarefas, ajustes: Ajustes };
+const TELAS = { hoje: Hoje, projetos: Projetos, projeto: Projetos, tarefas: Tarefas, modelos: Modelos, ajustes: Ajustes };
 let telaAtual = null;
 let shellMontado = false;
 
@@ -62,20 +63,23 @@ const NAV = [
   { rota: "hoje", rotulo: "Hoje", icone: ICONES.hoje },
   { rota: "projetos", rotulo: "Projetos", icone: ICONES.projetos },
   { rota: "tarefas", rotulo: "Tarefas", icone: ICONES.tarefas },
+  { rota: "modelos", rotulo: "Modelos", icone: ICONES.nota, soAdmin: true },
   { rota: "ajustes", rotulo: "Ajustes", icone: ICONES.ajustes }
 ];
+let ehAdmin = false; // definido ao entrar, antes de montar o menu
+const navVisivel = () => NAV.filter((n) => !n.soAdmin || ehAdmin);
 
 function montarShell() {
   app.innerHTML = `
     <div class="shell">
       <nav class="lateral" aria-label="Menu">
         <div class="marca"><img src="icones/icone-192.png" alt="" width="28" height="28"><span>Zum Projetos</span></div>
-        ${NAV.map((n) => `<a href="#/${n.rota}" data-rota="${n.rota}">${n.icone}<span>${n.rotulo}</span><b class="badge" data-badge="${n.rota}" hidden></b></a>`).join("")}
+        ${navVisivel().map((n) => `<a href="#/${n.rota}" data-rota="${n.rota}">${n.icone}<span>${n.rotulo}</span><b class="badge" data-badge="${n.rota}" hidden></b></a>`).join("")}
         <button type="button" class="botao primario nova-tarefa-lateral" data-acao="nova-tarefa">${ICONES.mais}Nova tarefa</button>
       </nav>
       <main class="conteudo" id="conteudo"><div class="carregando"><span></span></div></main>
       <nav class="abas-inferiores" aria-label="Menu">
-        ${NAV.map((n) => `<a href="#/${n.rota}" data-rota="${n.rota}">${n.icone}<span>${n.rotulo}</span><b class="badge" data-badge="${n.rota}" hidden></b></a>`).join("")}
+        ${navVisivel().map((n) => `<a href="#/${n.rota}" data-rota="${n.rota}">${n.icone}<span>${n.rotulo}</span><b class="badge" data-badge="${n.rota}" hidden></b></a>`).join("")}
       </nav>
       <button type="button" class="flutuante" data-acao="nova-tarefa" aria-label="Nova tarefa">${ICONES.mais}</button>
     </div>`;
@@ -160,6 +164,7 @@ function telaAviso(titulo, texto) {
 let desligarPerfil = null;
 function comecar(perfil) {
   Ajustes.definirUsuario(perfil);
+  if (ehAdmin !== !!perfil.admin) { ehAdmin = !!perfil.admin; shellMontado = false; }
   if (!shellMontado) montarShell();
   jaNavegou = false;
   navegar();

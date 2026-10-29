@@ -508,3 +508,58 @@ input[type=date].campo { min-width: 0; }
 .imp-linha select.campo { height: 36px; font-size: 14px; max-width: 280px; }
 .lista-rolavel { max-height: 46vh; overflow-y: auto; margin-top: 12px; }
 .imp-linha .pilula { white-space: normal; }
+
+/* ---------- Painel da temporada (Hoje, só a direção) ---------- */
+.painel-temporada { margin-bottom: 30px; }
+.painel-linhas { background: var(--cartao); border-radius: var(--raio); box-shadow: var(--sombra); overflow: hidden; }
+.painel-linha {
+  display: grid; grid-template-columns: minmax(0, 2.2fr) 1fr 1.4fr .8fr .8fr; align-items: center; gap: 12px;
+  padding: 12px 16px; color: inherit; text-decoration: none; transition: background .15s;
+}
+.painel-linha + .painel-linha { border-top: 1px solid var(--linha); }
+.painel-linha:hover { background: var(--cartao-2); }
+.painel-linha small { display: block; font-size: 12px; color: var(--suave); font-weight: 400; }
+.pl-nome { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; min-width: 0; }
+.pl-nome .ponto { grid-row: span 2; background: var(--cor); }
+.pl-nome b, .pl-nome small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-num b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.pl-num.vermelho b { color: var(--vermelho); }
+.pl-barra .barra { margin-bottom: 4px; }
+.carga-titulo { font-size: 15px; font-weight: 600; margin: 18px 4px 8px; }
+.carga-titulo small { display: block; font-weight: 400; font-size: 12px; margin-top: 2px; }
+.carga { background: var(--cartao); border-radius: var(--raio); box-shadow: var(--sombra); padding: 8px 16px; }
+.carga-semana { display: grid; grid-template-columns: 92px 1fr 32px; grid-template-rows: auto auto; column-gap: 10px; align-items: center; padding: 6px 0; }
+.carga-semana + .carga-semana { border-top: 1px solid var(--linha); }
+.carga-rotulo { font-size: 13px; color: var(--suave); }
+.carga-trilho { height: 10px; border-radius: 5px; background: var(--cinza); overflow: hidden; }
+.carga-trilho span { display: block; height: 100%; border-radius: 5px; background: var(--azul); opacity: .75; }
+.carga-semana.pesada .carga-trilho span { background: var(--vermelho); opacity: 1; }
+.carga-semana b { text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }
+.carga-semana.pesada b, .carga-semana.pesada .carga-rotulo { color: var(--vermelho); font-weight: 600; }
+.carga-exec { grid-column: 2 / 4; font-size: 12px; color: var(--suave); display: flex; align-items: center; gap: 4px; }
+.carga-exec:empty { display: none; }
+.carga-exec svg { width: 12px; height: 12px; }
+@media (max-width: 720px) {
+  .painel-linha { grid-template-columns: 1fr auto auto; }
+  .painel-linha .pl-barra { grid-column: 1 / -1; order: 5; }
+  .painel-linha .pl-num:nth-of-type(2) { display: none; }
+}
+
+/* ---------- Modelos ---------- */
+.modelo-topo .painel-topo { flex-wrap: wrap; gap: 8px; }
+.linha-modelo {
+  display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 12px 16px;
+  background: none; border: 0; color: inherit; font: inherit; cursor: pointer; transition: background .15s;
+}
+.linha-modelo + .linha-modelo { border-top: 1px solid var(--linha); }
+.linha-modelo:hover { background: var(--cartao-2); }
+.meta-local { color: var(--azul); }
+.campo-dias { width: 90px; flex: 0 0 auto; }
+.escondido { display: none !important; }
+.previa-edicao { background: var(--cartao-2); border-radius: 12px; padding: 12px 14px; }
+.previa-edicao p { margin: 0 0 6px; }
+.previa-edicao .lista-simples { margin: 4px 0 0; }
+.linha-prazo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.linha-prazo select.campo { flex: 1 1 160px; width: auto; }
+.pl-num small, .pl-barra small { white-space: nowrap; }
+.painel.largo.modelo-topo { max-width: none; }

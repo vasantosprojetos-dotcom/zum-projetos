@@ -1,9 +1,11 @@
 // Estado do app e todas as operações com projetos, tarefas e equipe.
 // As telas leem daqui e pedem mudanças por aqui; nunca falam direto com o Firebase.
 import * as fb from "./firebase.js";
-import { hoje, agora, diasEntre, CORES, periodo, rotuloPrazo, normalizar } from "./util.js";
+import { hoje, agora, diasEntre, CORES, periodo, rotuloPrazo, normalizar, somarDias } from "./util.js";
+import { calcularPrazo } from "./prazos.js";
+import { MODELOS_INICIAIS, FERIADOS_INICIAIS } from "./modelos-iniciais.js";
 
-const estado = { projetos: [], tarefas: [], pessoas: [], prontoP: false, prontoT: false };
+const estado = { projetos: [], tarefas: [], pessoas: [], modelos: null, feriados: null, prontoP: false, prontoT: false };
 const ouvintes = new Set();
 let desligar = [];
 
@@ -32,6 +34,8 @@ export function iniciar(p) {
   perfil = p;
   desligar.push(fb.ouvir("pessoas", (l) => { estado.pessoas = l; avisar(); }, () => {}));
   if (p.admin) {
+    desligar.push(fb.ouvirDoc("config", "modelos", (doc) => { estado.modelos = doc?.lista || null; avisar(); }, () => {}));
+    desligar.push(fb.ouvirDoc("config", "feriados", (doc) => { estado.feriados = doc?.lista || null; avisar(); }, () => {}));
     desligar.push(fb.ouvir("projetos", (l) => { estado.projetos = l; estado.prontoP = true; avisar(); }, erroLeitura));
     desligar.push(fb.ouvir("tarefas", (l) => { estado.tarefas = l; estado.prontoT = true; avisar(); }, erroLeitura));
     return;
@@ -58,7 +62,7 @@ export function iniciar(p) {
 export function parar() {
   desligar.forEach((f) => f && f());
   desligar = [];
-  Object.assign(estado, { projetos: [], tarefas: [], pessoas: [], prontoP: false, prontoT: false });
+  Object.assign(estado, { projetos: [], tarefas: [], pessoas: [], modelos: null, feriados: null, prontoP: false, prontoT: false });
 }
 function erroLeitura(e) {
   console.error(e);
@@ -111,13 +115,15 @@ export const naMao = (t) => t.status === "aFazer" || t.status === "andamento" ||
 
 // Tarefa "viva": não está na lixeira e o projeto dela (se houver) está ativo.
 function viva(t) {
-  if (t.excluidaEm) return false;
+  if (t.excluidaEm || t.encerrada) return false;
   if (!t.projetoId) return true;
   const p = projeto(t.projetoId);
   return !!p && !p.excluidoEm && !p.arquivado;
 }
 export const tarefasVivas = () => estado.tarefas.filter(viva);
-export const tarefasDoProjeto = (pid) => estado.tarefas.filter((t) => t.projetoId === pid && !t.excluidaEm);
+export const tarefasDoProjeto = (pid) => estado.tarefas.filter((t) => t.projetoId === pid && !t.excluidaEm && !t.encerrada);
+// Tarefas de uma edição já encerrada (para consulta e relatório)
+export const tarefasDaEdicao = (pid, nome) => estado.tarefas.filter((t) => t.projetoId === pid && !t.excluidaEm && t.encerrada && t.edicao === nome);
 
 const PESO_PRIORIDADE = { alta: 0, normal: 1, baixa: 2 };
 export function ordenarTarefas(lista) {
@@ -587,4 +593,135 @@ export async function organizarRede(plano) {
   plano.lixeira.forEach((t) => registro(t.id, "excluiu", "enviou para a lixeira (já está na rede)"));
   plano.unidades.forEach(({ datas }) => datas.forEach((x) => registro(x.t.id, "mudou", `ajustou o prazo para a semana da unidade (${x.prazo})`)));
   return { paraRede: plano.paraRede.length, lixeira: plano.lixeira.length, datas: plano.unidades.reduce((n, x) => n + x.datas.length, 0) };
+}
+
+
+// ---------------- Modelos de checklist e feriados (só a administradora) ----------------
+// Ficam em config/modelos e config/feriados. Na primeira vez, vêm da planilha (modelos-iniciais.js).
+export const modelos = () => estado.modelos || MODELOS_INICIAIS;
+export const modelo = (id) => modelos().find((m) => m.id === id) || null;
+export const feriados = () => [...(estado.feriados || FERIADOS_INICIAIS)].sort((a, b) => a.data.localeCompare(b.data));
+const conjuntoFeriados = () => new Set(feriados().map((f) => f.data));
+export const PAPEIS = { direcao: "Direção (Vanessa)", local: "Coordenação local" };
+
+export function salvarModelos(lista) {
+  if (!souAdmin()) return Promise.reject(new Error("so-admin"));
+  estado.modelos = lista; avisar();
+  return gravar(fb.substituir("config", "modelos", { lista, atualizadoEm: agora() }));
+}
+export function salvarModelo(m) {
+  const lista = modelos().some((x) => x.id === m.id) ? modelos().map((x) => (x.id === m.id ? m : x)) : [...modelos(), m];
+  return salvarModelos(lista);
+}
+export function salvarFeriados(lista) {
+  if (!souAdmin()) return Promise.reject(new Error("so-admin"));
+  const ordenada = [...lista].sort((a, b) => a.data.localeCompare(b.data));
+  estado.feriados = ordenada; avisar();
+  return gravar(fb.substituir("config", "feriados", { lista: ordenada, atualizadoEm: agora() }));
+}
+export const novoIdModelo = () => Math.random().toString(36).slice(2, 10);
+
+// ---------------- Edições ----------------
+// A colônia é permanente; cada edição (Dez/26, Jul/27…) tem suas tarefas.
+// p.edicaoAtual = { nome, modelo, inicio, fim, semana2 }   p.edicoes = [{ nome, inicio, fim, encerradaEm, total, feitas }]
+export function nomeEdicaoAtual(p) {
+  if (p.edicaoAtual?.nome) return p.edicaoAtual.nome;
+  const cont = {};
+  for (const t of tarefasDoProjeto(p.id)) if (t.origem) cont[t.origem] = (cont[t.origem] || 0) + 1;
+  return Object.entries(cont).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+}
+export const edicoesAnteriores = (p) => [...(p.edicoes || [])].sort((a, b) => (b.inicio || "").localeCompare(a.inicio || ""));
+
+// Gera as tarefas de uma edição a partir de um modelo (sem gravar). datas: { inicio, fim, semana2 }
+export function previaEdicao(pid, modeloId, datas) {
+  const m = modelo(modeloId);
+  if (!m) return [];
+  const fer = conjuntoFeriados();
+  return m.tarefas.map((t, i) => ({ ...t, ordem: i, prazo: calcularPrazo(t.ancora, t.dias, datas, fer) }));
+}
+
+// Encerra a edição atual e cria a nova. levarAbertas: tarefas abertas criadas à mão passam para a nova edição.
+export async function novaEdicao(pid, { nome, modeloId, inicio, fim, semana2, nomeAnterior, levarAbertas = true }) {
+  if (!souAdmin()) throw new Error("so-admin");
+  const p = projeto(pid);
+  const m = modelo(modeloId);
+  if (!p || !m || !nome || !inicio) throw new Error("dados");
+  if (nome === nomeAnterior || (p.edicoes || []).some((e) => e.nome === nome)) throw new Error("nome-repetido");
+  const quando = agora();
+  const base = { atualizadaPor: perfil.email, atualizadaEm: quando };
+  const ops = [];
+  const atuais = tarefasDoProjeto(pid);
+  // 1) Encerra a edição atual
+  const manuaisAbertas = atuais.filter((t) => !t.origem && !t.modeloId && aberta(t));
+  const encerrar = atuais.filter((t) => !(levarAbertas && manuaisAbertas.includes(t)));
+  for (const t of encerrar) ops.push({ tipo: "merge", col: "tarefas", id: t.id, dados: { ...base, encerrada: true, edicao: t.edicao || nomeAnterior || "Edição anterior" } });
+  for (const t of levarAbertas ? manuaisAbertas : []) ops.push({ tipo: "merge", col: "tarefas", id: t.id, dados: { ...base, edicao: nome } });
+  const edicoes = [...(p.edicoes || [])];
+  if (encerrar.length) {
+    const sem = encerrar.filter((t) => t.status !== "naoSeAplica");
+    edicoes.push({ nome: nomeAnterior || "Edição anterior", inicio: p.edicaoAtual?.inicio || p.dataInicio || null,
+      fim: p.edicaoAtual?.fim || p.dataFim || null, encerradaEm: quando,
+      total: sem.length, feitas: sem.filter((t) => t.status === "concluida").length });
+  }
+  // 2) Cria as tarefas da nova edição
+  const datas = { inicio, fim: fim || inicio, semana2: semana2 || null };
+  const local = coordenadorLocal(pid);
+  const quem = (papel) => (papel === "local" ? (local?.id || perfil.email) : perfil.email);
+  const nomeApoio = (a) => (a === "direcao" ? (perfil.nome || "Vanessa") : a === "local" ? (local?.nome || "") : a || "");
+  const novas = previaEdicao(pid, modeloId, datas);
+  for (const t of novas) {
+    ops.push({ tipo: "set", col: "tarefas", id: fb.novoId("tarefas"), dados: {
+      titulo: t.titulo, projetoId: pid, coloniaId: coloniaDe(pid) || pid, fase: t.fase || "", area: t.area || "",
+      prazo: t.prazo, prazoModelo: t.prazo, ancora: t.ancora, dias: t.dias, papel: t.papel, modeloId, modeloTarefaId: t.id,
+      prioridade: "normal", status: "aFazer", responsavel: quem(t.papel), apoio: nomeApoio(t.apoio), notas: t.notas || "",
+      concluidaEm: null, excluidaEm: null, encerrada: false, edicao: nome, origem: nome, ordemModelo: t.ordem,
+      criadaPor: perfil.email, criadaEm: quando, ...base
+    } });
+  }
+  // 3) Atualiza a colônia: datas do evento, fases do modelo, edição atual
+  const fases = [...m.fases];
+  for (const t of levarAbertas ? manuaisAbertas : []) if (t.fase && !fases.includes(t.fase)) fases.push(t.fase);
+  ops.push({ tipo: "merge", col: "projetos", id: pid, dados: {
+    edicaoAtual: { nome, modelo: modeloId, inicio, fim: fim || null, semana2: semana2 || null },
+    edicoes, dataInicio: inicio, dataFim: fim && fim > inicio ? fim : null, fases, proximoPasso: "", atualizadoEm: quando
+  } });
+  await gravar(fb.emLote(ops));
+  return { criadas: novas.length, encerradas: encerrar.length, levadas: levarAbertas ? manuaisAbertas.length : 0 };
+}
+
+// ---------------- Painel da temporada ----------------
+export function edicoesEmAndamento() {
+  const h = hoje();
+  return colonias().filter((p) => !p.arquivado && p.dataInicio && (p.dataFim || p.dataInicio) >= somarDias(h, -30))
+    .map((p) => {
+      const ts = tarefasDoProjeto(p.id).filter((t) => t.status !== "naoSeAplica");
+      const feitas = ts.filter((t) => t.status === "concluida").length;
+      const abertas = ts.filter(naMao);
+      return {
+        p, edicao: nomeEdicaoAtual(p), inicio: p.dataInicio, fim: p.dataFim || p.dataInicio,
+        faltam: diasEntre(h, p.dataInicio), total: ts.length, feitas, pct: ts.length ? Math.round((feitas / ts.length) * 100) : 0,
+        atrasadas: abertas.filter((t) => t.prazo && t.prazo < h).length,
+        semana: abertas.filter((t) => t.prazo && t.prazo >= h && t.prazo <= somarDias(h, 6)).length
+      };
+    }).sort((a, b) => a.inicio.localeCompare(b.inicio));
+}
+
+// Tarefas abertas que vencem em cada semana (segunda a domingo), somando as colônias.
+export const LIMITE_SEMANA_PESADA = 20;
+export function cargaPorSemana(semanas = 12) {
+  const h = hoje();
+  const dia = new Date(`${h}T12:00:00`).getDay();
+  const segunda = somarDias(h, -((dia + 6) % 7));
+  const cols = colonias().filter((p) => !p.arquivado);
+  const abertas = tarefasVivas().filter((t) => naMao(t) && t.prazo && cols.some((c) => c.id === t.projetoId));
+  const out = [];
+  for (let i = 0; i < semanas; i++) {
+    const de = somarDias(segunda, i * 7), ate = somarDias(de, 6);
+    const ts = abertas.filter((t) => (i === 0 ? t.prazo <= ate : t.prazo >= de && t.prazo <= ate));
+    const porColonia = {};
+    for (const t of ts) porColonia[t.projetoId] = (porColonia[t.projetoId] || 0) + 1;
+    const emExecucao = cols.filter((c) => c.dataInicio && c.dataInicio <= ate && (c.dataFim || c.dataInicio) >= de);
+    out.push({ de, ate, total: ts.length, porColonia, emExecucao, inclui_atrasadas: i === 0 });
+  }
+  return out;
 }
