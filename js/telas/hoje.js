@@ -11,7 +11,7 @@ export function montar(el) {
   el.innerHTML = `
     <header class="cabecalho">
       <p class="sobretitulo">${esc(dataLonga())}</p>
-      <h1>${saudacao()}, Vanessa</h1>
+      <h1>${saudacao()}, ${esc((D.eu()?.nome || "").split(" ")[0])}</h1>
       <p class="resumo" id="hoje-resumo"></p>
     </header>
     ${barraRapida({ prazoHoje: true, placeholder: "Nova tarefa para hoje… (Enter para adicionar)" })}
@@ -27,8 +27,11 @@ export function atualizar() {
   if (!raiz) return;
   const h = hoje();
   const fim = somarDias(h, 7);
-  const vivas = D.tarefasVivas().filter(D.aberta);
-  const aFazer = vivas.filter((t) => t.status === "aFazer");
+  const eu = D.eu()?.email;
+  const todasVivas = D.tarefasVivas().filter(D.aberta);
+  const vivas = todasVivas.filter((t) => !t.responsavel || t.responsavel === eu);
+  const daEquipe = D.ordenarTarefas(todasVivas.filter((t) => t.responsavel && t.responsavel !== eu && D.naMao(t) && t.prazo && t.prazo <= fim));
+  const aFazer = vivas.filter(D.naMao);
   const atrasadas = D.ordenarTarefas(aFazer.filter((t) => t.prazo && t.prazo < h));
   const deHoje = D.ordenarTarefas(aFazer.filter((t) => t.prazo === h));
   const semana = D.ordenarTarefas(aFazer.filter((t) => t.prazo && t.prazo > h && t.prazo <= fim));
@@ -72,6 +75,12 @@ export function atualizar() {
   if (aguardando.length) {
     html += `<details class="secao recolhivel"><summary><h2>Aguardando resposta</h2><span class="contagem">${aguardando.length}</span>${ICONES.seta}</summary>
       ${listaTarefas(aguardando)}</details>`;
+  }
+  if (daEquipe.length) {
+    const atrasEq = daEquipe.filter((t) => t.prazo < h).length;
+    html += `<details class="secao recolhivel"><summary><h2>Com a equipe</h2><span class="contagem">${daEquipe.length}</span>${atrasEq ? `<span class="pilula vermelha">${atrasEq} atrasada${atrasEq > 1 ? "s" : ""}</span>` : ""}${ICONES.seta}</summary>
+      <p class="texto-suave pequeno">Tarefas de outras pessoas que vencem até ${esc(tituloDia(fim).toLowerCase())}.</p>
+      ${listaTarefas(daEquipe, { mostrarResponsavel: true })}</details>`;
   }
   raiz.querySelector("#hoje-tarefas").innerHTML = html;
   raiz.querySelector("#hoje-projetos").innerHTML = resumoProjetos();

@@ -22,14 +22,15 @@ function montarLista() {
   raiz.innerHTML = `
     <header class="cabecalho linha">
       <div><h1>Projetos</h1><p class="resumo" id="proj-resumo"></p></div>
-      <button type="button" class="botao primario" id="novo-projeto">${ICONES.mais}Novo projeto</button>
+      ${D.souAdmin() ? `<button type="button" class="botao primario" id="novo-projeto">${ICONES.mais}Novo projeto</button>` : ""}
     </header>
     <div class="segmentado abas" id="proj-abas">
       <button type="button" data-v="ativos">Ativos</button>
       <button type="button" data-v="arquivados">Arquivados</button>
     </div>
     <div id="proj-grade"></div>`;
-  raiz.querySelector("#novo-projeto").onclick = () => editarProjeto(null);
+  const novo = raiz.querySelector("#novo-projeto");
+  if (novo) novo.onclick = () => editarProjeto(null);
   raiz.querySelector("#proj-abas").onclick = (e) => {
     const b = e.target.closest("button[data-v]");
     if (b) { aba = b.dataset.v; atualizarLista(); }
@@ -42,15 +43,24 @@ function atualizarLista() {
   raiz.querySelectorAll("#proj-abas button").forEach((b) => b.classList.toggle("ativo", b.dataset.v === aba));
   const ativos = D.projetosAtivos();
   raiz.querySelector("#proj-resumo").textContent = `${ativos.length} projeto${ativos.length === 1 ? "" : "s"} ativo${ativos.length === 1 ? "" : "s"}`;
+  const grade = (ps) => `<div class="grade-projetos">${ps.map(cartao).join("")}</div>`;
+  const cols = lista.filter((p) => p.tipo === "colonia");
+  const outros = lista.filter((p) => p.tipo !== "colonia");
+  const grupos = [...new Set(cols.map((p) => p.grupo || ""))].sort((a, b) => (a ? 1 : 0) - (b ? 1 : 0) || a.localeCompare(b, "pt-BR"));
+  const blocoColonias = grupos.map((g) => {
+    const ps = cols.filter((p) => (p.grupo || "") === g);
+    return `<section class="grupo-projetos"><h2>${esc(g || "Colônias")}</h2>${grade(ps)}</section>`;
+  }).join("");
+  const blocoOutros = outros.length ? `<section class="grupo-projetos"><h2>${cols.length ? "Outros projetos" : "Projetos"}</h2>${grade(outros)}</section>` : "";
   raiz.querySelector("#proj-grade").innerHTML = lista.length
-    ? `<div class="grade-projetos">${lista.map(cartao).join("")}</div>`
+    ? blocoColonias + blocoOutros
     : `<div class="vazio">${ICONES.projetos}<p>${aba === "ativos" ? "Nenhum projeto ativo. Crie o primeiro!" : "Nenhum projeto arquivado."}</p></div>`;
 }
 
 function cartao(p) {
   const pr = D.progresso(p.id);
   const pp = D.proximoPasso(p);
-  const atrasadas = D.tarefasDoProjeto(p.id).filter((t) => t.status === "aFazer" && t.prazo && t.prazo < hoje()).length;
+  const atrasadas = D.tarefasDoProjeto(p.id).filter((t) => D.naMao(t) && t.prazo && t.prazo < hoje()).length;
   return `
     <a class="cartao-projeto" href="#/projeto/${p.id}" style="--cor:${p.cor};--cor-suave:${corSuave(p.cor)}">
       <div class="cartao-topo">
@@ -96,6 +106,9 @@ function montarDetalhe() {
         <div id="det-fases"></div>
       </div>
       <aside class="det-lateral">
+        <section class="painel" id="det-equipe-painel" hidden><div class="painel-topo"><h3>${ICONES.pessoa}Equipe</h3></div>
+          <div id="det-equipe"></div>
+        </section>
         <section class="painel"><div class="painel-topo"><h3>${ICONES.calendario}Datas importantes</h3></div>
           <div id="det-datas"></div>
           <form class="form-linha" id="form-data">
@@ -168,13 +181,14 @@ function atualizarDetalhe() {
         <h1><i class="ponto grande"></i>${esc(p.nome)}</h1>
         <div class="linha-pilulas">
           <button type="button" class="pilula botao-pilula" data-det="status">${esc(p.status)}${ICONES.seta}</button>
+          ${p.tipo === "colonia" ? `<span class="pilula">${esc(p.grupo ? `Colônia · ${p.grupo}` : "Colônia")}</span>` : ""}
           ${p.arquivado ? `<span class="pilula">Arquivado</span>` : ""}
           ${linhaEvento(p, "span")}
         </div>
       </div>
       <div class="acoes">
         <button type="button" class="botao" data-det="editar">${ICONES.lapis}Editar</button>
-        <button type="button" class="botao-icone" data-det="mais" aria-label="Mais opções">${ICONES.mais3}</button>
+        ${D.souAdmin() ? `<button type="button" class="botao-icone" data-det="mais" aria-label="Mais opções">${ICONES.mais3}</button>` : ""}
       </div>
     </div>
     <div class="progresso-grande">
@@ -205,6 +219,15 @@ function atualizarDetalhe() {
       ${mostrar.length ? listaTarefas(mostrar, { mostrarProjeto: false }) : `<p class="fase-vazia">${completa ? "Fase concluída ✓" : "Nenhuma tarefa nesta fase."}</p>`}
     </section>`;
   }).join("") || `<div class="vazio"><p>Crie fases em Editar ou adicione tarefas acima.</p></div>`;
+
+  // Equipe da colônia
+  const painelEq = raiz.querySelector("#det-equipe-painel");
+  if (p.tipo === "colonia") {
+    const eq = D.equipeDoProjeto(p.id);
+    painelEq.hidden = false;
+    raiz.querySelector("#det-equipe").innerHTML = `<ul class="lista-simples">${eq.map((x) => `<li><span class="flex1"><b>${esc(x.nome || x.id)}</b></span><small class="texto-suave">${x.papel === "admin" ? "direção" : "coordenação"}</small></li>`).join("")}</ul>`
+      + (D.souAdmin() ? `<p class="texto-suave pequeno">Quem vê esta colônia é definido em Ajustes → Equipe.</p>` : "");
+  } else painelEq.hidden = true;
 
   // Datas importantes
   const datas = [...(p.datas || [])].sort((a, b) => a.data.localeCompare(b.data));
@@ -274,6 +297,14 @@ export function editarProjeto(id) {
         <label>Cor
           <div class="cores">${CORES.map((c) => `<button type="button" class="cor ${c.hex === corInicial ? "ativo" : ""}" data-cor="${c.hex}" style="--c:${c.hex}" aria-label="${c.nome}" title="${c.nome}"></button>`).join("")}</div>
         </label>
+        ${D.souAdmin() ? `<div class="grade-2">
+          <label>Tipo<select class="campo" name="tipo">
+            <option value="colonia" ${p.tipo === "colonia" ? "selected" : ""}>Colônia (a equipe pode ver)</option>
+            <option value="avulso" ${p.tipo !== "colonia" ? "selected" : ""}>Projeto avulso (só você)</option>
+          </select></label>
+          <label>Grupo <small class="texto-suave">opcional</small><input class="campo" name="grupo" list="lista-grupos" value="${esc(p.grupo || "")}" placeholder="Ex.: Rede Santa Maria">
+            <datalist id="lista-grupos">${[...new Set(D.todosProjetos().map((x) => x.grupo).filter(Boolean))].map((g) => `<option value="${esc(g)}">`).join("")}</datalist></label>
+        </div>` : ""}
         <div class="grade-2">
           <label>Status<select class="campo" name="status">${STATUS_PROJETO.map((s) => `<option ${s === p.status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
           <span></span>
@@ -316,9 +347,17 @@ export function editarProjeto(id) {
           fases: f.fases.value.split("\n").map((s) => s.trim()).filter(Boolean),
           proximoPasso: f.proximoPasso.value.trim()
         };
+        const tipo = f.tipo ? f.tipo.value : null;
+        if (f.grupo) campos.grupo = f.grupo.value.trim();
         fecharModal();
-        if (id) { D.atualizarProjeto(id, campos); avisar("Projeto salvo"); }
-        else { const novo = D.criarProjeto(campos); location.hash = `#/projeto/${novo}`; avisar("Projeto criado"); }
+        if (id) {
+          D.atualizarProjeto(id, campos);
+          if (tipo) D.definirTipoProjeto(id, tipo);
+          avisar("Projeto salvo");
+        } else {
+          const novo = D.criarProjeto({ ...campos, tipo: tipo || "avulso" });
+          location.hash = `#/projeto/${novo}`; avisar("Projeto criado");
+        }
       };
     }
   });

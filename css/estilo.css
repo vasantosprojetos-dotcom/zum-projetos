@@ -482,3 +482,27 @@ input[type=date].campo { min-width: 0; }
 }
 
 .dica-periodo { margin-top: -6px; font-size: 12.5px; }
+
+/* ---------------- Equipe (versão 2) ---------------- */
+.meta-pessoa { display: inline-flex; align-items: center; gap: 3px; color: var(--suave); }
+.meta-pessoa svg { width: 13px; height: 13px; }
+.selo-andamento { background: var(--azul-suave); color: var(--azul); padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.grupo-projetos + .grupo-projetos { margin-top: 28px; }
+.grupo-projetos h2 { font-size: 15px; font-weight: 600; color: var(--suave); margin: 0 0 12px; }
+
+.registros { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--linha); }
+.registros h3 { font-size: 14px; font-weight: 600; margin: 0 0 10px; }
+.registros .form-linha { grid-template-columns: 1fr auto; align-items: center; }
+.lista-registros { list-style: none; margin: 12px 0 0; padding: 0; max-height: 260px; overflow-y: auto; }
+.lista-registros li { padding: 7px 0; font-size: 13px; display: flex; gap: 8px; align-items: baseline; }
+.lista-registros li + li { border-top: 1px solid var(--linha); }
+.lista-registros li small { margin-left: auto; flex-shrink: 0; color: var(--terciario); font-size: 12px; }
+.lista-registros li.comentario { flex-wrap: wrap; }
+.lista-registros li.comentario span { flex-basis: 100%; order: 3; color: var(--texto); }
+.lista-registros li.evento { color: var(--suave); }
+
+.caixas { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
+.caixas legend { font-size: 13px; color: var(--suave); margin-bottom: 6px; padding: 0; }
+.caixa { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+.imp-linha { flex-wrap: wrap; }
+.imp-linha select.campo { height: 36px; font-size: 14px; max-width: 280px; }

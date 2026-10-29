@@ -1,20 +1,23 @@
 // Tudo sobre a tarefa na tela: a linha da lista, o adiar, o editor e a criação rápida.
 import * as D from "../dados.js";
-import { esc, hoje, somarDias, rotuloPrazo, proximaSegunda, PRIORIDADES, dataCurta } from "../util.js";
+import { esc, hoje, somarDias, rotuloPrazo, proximaSegunda, PRIORIDADES, dataCurta, AREAS } from "../util.js";
 import { ICONES, avisar, abrirModal, fecharModal, abrirMenu } from "./ui.js";
 
 // ---------- Linha da lista ----------
-export function linhaTarefa(t, { mostrarProjeto = true, mostrarFase = false } = {}) {
+export function linhaTarefa(t, { mostrarProjeto = true, mostrarFase = false, mostrarResponsavel = true } = {}) {
   const p = t.projetoId ? D.projeto(t.projetoId) : null;
   const cor = p ? p.cor : "#A1A1A6";
-  const feita = t.status === "concluida";
+  const feita = !D.aberta(t);
   const atrasada = !feita && t.prazo && t.prazo < hoje();
   const meta = [];
   if (mostrarProjeto && p) meta.push(`<span class="meta-projeto"><i style="background:${cor}"></i>${esc(p.nome)}</span>`);
   if (mostrarFase && t.fase) meta.push(`<span>${esc(t.fase)}</span>`);
   if (t.prazo && !feita) meta.push(`<span class="meta-prazo ${atrasada ? "atrasado" : ""}">${ICONES.calendario}${esc(rotuloPrazo(t.prazo))}</span>`);
-  if (feita && t.concluidaEm) meta.push(`<span>Concluída em ${esc(dataCurta(t.concluidaEm.slice(0, 10)))}</span>`);
+  if (mostrarResponsavel && t.responsavel && t.responsavel !== D.eu()?.email) meta.push(`<span class="meta-pessoa">${ICONES.pessoa}${esc(D.primeiroNome(t.responsavel))}</span>`);
+  if (t.status === "naoSeAplica") meta.push(`<span>Não se aplica</span>`);
+  else if (feita && t.concluidaEm) meta.push(`<span>Concluída em ${esc(dataCurta(t.concluidaEm.slice(0, 10)))}</span>`);
   if (t.status === "aguardando") meta.push(`<span class="selo-aguardando">Aguardando</span>`);
+  if (t.status === "andamento") meta.push(`<span class="selo-andamento">Em andamento</span>`);
   if (t.prioridade === "alta" && !feita) meta.push(`<span class="meta-alta">${ICONES.bandeira}Alta</span>`);
   if (t.notas) meta.push(`<span class="meta-nota" title="Tem anotações">${ICONES.nota}</span>`);
 
@@ -89,7 +92,8 @@ function escolherData(atual, aoEscolher) {
 
 // ---------- Editor ----------
 function opcoesProjeto(sel) {
-  return `<option value="">Sem projeto</option>` + D.projetosAtivos().map((p) =>
+  const lista = D.souAdmin() ? D.projetosAtivos() : D.projetosAtivos().filter((p) => p.tipo === "colonia");
+  return (D.souAdmin() ? `<option value="">Sem projeto</option>` : "") + lista.map((p) =>
     `<option value="${p.id}" ${p.id === sel ? "selected" : ""}>${esc(p.nome)}</option>`).join("");
 }
 function opcoesFase(pid, sel) {
@@ -100,10 +104,25 @@ function opcoesFase(pid, sel) {
     `<option ${f === sel ? "selected" : ""}>${esc(f)}</option>`).join("");
 }
 
+function opcoesResponsavel(pid, sel) {
+  const equipe = D.equipeDoProjeto(pid);
+  const extra = sel && !equipe.some((p) => p.id === sel) ? [{ id: sel, nome: D.nomeDe(sel) }] : [];
+  return `<option value="">Ninguém ainda</option>` + [...equipe, ...extra].map((p) =>
+    `<option value="${esc(p.id)}" ${p.id === sel ? "selected" : ""}>${esc(p.nome || p.id)}</option>`).join("");
+}
+
+// Coordenador sem projeto escolhido: cai na primeira colônia dele
+export function projetoPadrao(pid) {
+  if (pid || D.souAdmin()) return pid || null;
+  return D.projetosAtivos().find((p) => p.tipo === "colonia")?.id || null;
+}
+
 export function editarTarefa(id, padrao = {}) {
-  const t = id ? D.tarefa(id) : { titulo: "", prioridade: "normal", status: "aFazer", ...padrao };
+  const base = { titulo: "", prioridade: "normal", status: "aFazer", responsavel: D.eu()?.email || "", ...padrao };
+  base.projetoId = projetoPadrao(base.projetoId);
+  const t = id ? D.tarefa(id) : base;
   if (!t) return;
-  const status = [["aFazer", "A fazer"], ["aguardando", "Aguardando"], ...(t.status === "concluida" ? [["concluida", "Concluída"]] : [])];
+  const status = [["aFazer", "A fazer"], ["andamento", "Em andamento"], ["aguardando", "Aguardando"], ["naoSeAplica", "Não se aplica"], ...(t.status === "concluida" ? [["concluida", "Concluída"]] : [])];
   abrirModal({
     titulo: id ? "Tarefa" : "Nova tarefa",
     corpo: `
@@ -112,6 +131,8 @@ export function editarTarefa(id, padrao = {}) {
         <div class="grade-2">
           <label>Projeto<select class="campo" name="projetoId">${opcoesProjeto(t.projetoId)}</select></label>
           <label>Fase<select class="campo" name="fase">${opcoesFase(t.projetoId, t.fase)}</select></label>
+          <label>Responsável<select class="campo" name="responsavel">${opcoesResponsavel(t.projetoId, t.responsavel)}</select></label>
+          <label>Quem apoia <small class="texto-suave">opcional</small><input class="campo" name="apoio" value="${esc(t.apoio || "")}" placeholder="Ex.: Vanessa, escola, SMEL"></label>
           <label>Prazo
             <div class="campo-com-botao">
               <input type="date" class="campo" name="prazo" value="${t.prazo || ""}">
@@ -128,10 +149,21 @@ export function editarTarefa(id, padrao = {}) {
             ${status.map(([v, r]) => `<button type="button" data-v="${v}" class="${t.status === v ? "ativo" : ""}">${r}</button>`).join("")}
           </div>
         </label>
-        <label>Anotações<textarea class="campo" name="notas" rows="3" placeholder="Detalhes, contatos, links…">${esc(t.notas || "")}</textarea></label>
-      </form>`,
+        <label>Área <small class="texto-suave">para filtrar: Escola, Comunicação, Camisas…</small>
+          <input class="campo" name="area" list="lista-areas" value="${esc(t.area || "")}">
+          <datalist id="lista-areas">${AREAS.map((a) => `<option value="${esc(a)}">`).join("")}</datalist></label>
+        <label>Observações<textarea class="campo" name="notas" rows="3" placeholder="Detalhes fixos, contatos, links…">${esc(t.notas || "")}</textarea></label>
+      </form>
+      ${id ? `<section class="registros">
+        <h3>Comentários e histórico</h3>
+        <form class="form-linha" id="form-comentario" autocomplete="off">
+          <input class="campo" name="texto" placeholder="Escreva um comentário… (ex.: liguei pro fornecedor, volta amanhã)">
+          <button class="botao pequeno" type="submit">Comentar</button>
+        </form>
+        <ul class="lista-registros" id="lista-registros"><li class="texto-suave pequeno">Carregando…</li></ul>
+      </section>` : ""}`,
     rodape: `
-      ${id ? `<button type="button" class="botao texto perigo" data-excluir>${ICONES.lixo}Excluir</button>` : ""}
+      ${id && !t.excluidaEm ? `<button type="button" class="botao texto perigo" data-excluir>${ICONES.lixo}Excluir</button>` : ""}
       <span class="espaco"></span>
       <button type="button" class="botao" data-cancelar>Cancelar</button>
       <button type="submit" form="form-tarefa" class="botao primario">${id ? "Salvar" : "Criar tarefa"}</button>`,
@@ -144,7 +176,11 @@ export function editarTarefa(id, padrao = {}) {
         s.querySelectorAll("button").forEach((x) => x.classList.toggle("ativo", x === b));
         valores[s.dataset.campo] = b.dataset.v;
       }));
-      f.projetoId.onchange = () => { f.fase.innerHTML = opcoesFase(f.projetoId.value, ""); };
+      f.projetoId.onchange = () => {
+        f.fase.innerHTML = opcoesFase(f.projetoId.value, "");
+        f.responsavel.innerHTML = opcoesResponsavel(f.projetoId.value, f.responsavel.value);
+      };
+      if (id) ligarRegistros(m, id);
       m.querySelector("[data-cancelar]").onclick = fecharModal;
       const ex = m.querySelector("[data-excluir]");
       if (ex) ex.onclick = async () => {
@@ -158,11 +194,18 @@ export function editarTarefa(id, padrao = {}) {
         if (!titulo) return f.titulo.focus();
         const campos = {
           titulo, projetoId: f.projetoId.value || null, fase: f.fase.value, prazo: f.prazo.value || null,
-          prioridade: valores.prioridade, status: valores.status, notas: f.notas.value.trim()
+          prioridade: valores.prioridade, status: valores.status, notas: f.notas.value.trim(),
+          responsavel: f.responsavel.value, apoio: f.apoio.value.trim(), area: f.area.value.trim()
         };
+        if (!D.souAdmin() && !campos.projetoId) { avisar("Escolha a colônia da tarefa."); return; }
         if (campos.status === "concluida" && t.status !== "concluida") campos.concluidaEm = new Date().toISOString();
         if (campos.status !== "concluida") campos.concluidaEm = null;
-        if (id) D.atualizarTarefa(id, campos); else D.criarTarefa(campos);
+        if (id) {
+          const antes = D.tarefa(id);
+          // só grava o que mudou (assim o histórico fica limpo)
+          for (const k of Object.keys(campos)) if ((campos[k] ?? "") === (antes[k] ?? "")) delete campos[k];
+          if (Object.keys(campos).length) D.atualizarTarefa(id, campos);
+        } else D.criarTarefa(campos);
         fecharModal();
         avisar(id ? "Tarefa salva" : "Tarefa criada");
       };
@@ -190,7 +233,7 @@ export function ligarBarraRapida(raiz) {
   raiz.querySelectorAll("form.rapida").forEach((form) => {
     const fixo = { projetoId: form.dataset.projeto || null, fase: form.dataset.fase || "" };
     const prazoPadrao = () => (form.dataset.prazo === "hoje" ? hoje() : null);
-    const sel = { projetoId: fixo.projetoId, prazo: prazoPadrao(), prioridade: "normal" };
+    const sel = { projetoId: projetoPadrao(fixo.projetoId), prazo: prazoPadrao(), prioridade: "normal" };
     const chipP = form.querySelector('[data-chip="projeto"]');
     const chipD = form.querySelector('[data-chip="prazo"]');
     const chipA = form.querySelector('[data-chip="prioridade"]');
@@ -207,9 +250,8 @@ export function ligarBarraRapida(raiz) {
     };
 
     if (chipP) chipP.onclick = () => abrirMenu(chipP, [
-      { rotulo: "Sem projeto", fn: () => { sel.projetoId = null; pintar(); } },
-      { separador: true },
-      ...D.projetosAtivos().map((p) => ({
+      ...(D.souAdmin() ? [{ rotulo: "Sem projeto", fn: () => { sel.projetoId = null; pintar(); } }, { separador: true }] : []),
+      ...D.projetosAtivos().filter((p) => D.souAdmin() || p.tipo === "colonia").map((p) => ({
         rotulo: p.nome, icone: `<i class="ponto" style="background:${p.cor}"></i>`,
         fn: () => { sel.projetoId = p.id; pintar(); form.titulo.focus(); }
       }))
@@ -231,6 +273,7 @@ export function ligarBarraRapida(raiz) {
       e.preventDefault();
       const titulo = form.titulo.value.trim();
       if (!titulo) return form.titulo.focus();
+      if (!D.souAdmin() && !sel.projetoId) { avisar("Escolha a colônia da tarefa."); return; }
       D.criarTarefa({ titulo, projetoId: sel.projetoId, fase: fixo.fase, prazo: sel.prazo, prioridade: sel.prioridade });
       form.titulo.value = "";
       sel.prioridade = "normal";
@@ -240,4 +283,32 @@ export function ligarBarraRapida(raiz) {
     };
     pintar();
   });
+}
+
+// ---------- Comentários e histórico ----------
+function quando(iso) {
+  const d = new Date(iso);
+  const hh = String(d.getHours()).padStart(2, "0"), mm = String(d.getMinutes()).padStart(2, "0");
+  return `${dataCurta(iso.slice(0, 10))} ${hh}:${mm}`;
+}
+function ligarRegistros(m, id) {
+  const ul = m.querySelector("#lista-registros");
+  const desligar = D.ouvirRegistros(id, (lista) => {
+    if (!document.body.contains(ul)) { desligar && desligar(); return; }
+    const ord = [...lista].sort((a, b) => (b.em || "").localeCompare(a.em || ""));
+    ul.innerHTML = ord.length ? ord.map((r) => r.tipo === "comentario"
+      ? `<li class="comentario"><b>${esc(r.nome || r.por)}</b><span>${esc(r.texto)}</span><small>${esc(quando(r.em))}</small></li>`
+      : `<li class="evento"><span><b>${esc((r.nome || r.por || "").split(" ")[0])}</b> ${esc(r.texto)}</span><small>${esc(quando(r.em))}</small></li>`).join("")
+      : `<li class="texto-suave pequeno">Nada registrado ainda.</li>`;
+  });
+  const f = m.querySelector("#form-comentario");
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const texto = f.texto.value.trim();
+    if (!texto) return;
+    D.comentar(id, texto).then(() => { f.texto.value = ""; }).catch(() => {});
+  };
+  const fechar = m.closest(".modal-fundo");
+  new MutationObserver((_, obs) => { if (!document.body.contains(fechar)) { desligar(); obs.disconnect(); } })
+    .observe(document.body, { childList: true });
 }

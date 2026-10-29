@@ -28,7 +28,9 @@ export function montar(el) {
       </select>
       <select class="campo" id="f-status">
         <option value="abertas">Abertas</option>
+        <option value="minhas">Minhas abertas</option>
         <option value="aFazer">A fazer</option>
+        <option value="andamento">Em andamento</option>
         <option value="aguardando">Aguardando</option>
         <option value="concluida">Concluídas</option>
         <option value="todas">Todas</option>
@@ -49,7 +51,7 @@ export function montar(el) {
 export function atualizar() {
   if (!raiz) return;
   const sel = raiz.querySelector("#f-projeto");
-  sel.innerHTML = `<option value="">Todos os projetos</option><option value="nenhum">Sem projeto</option>` +
+  sel.innerHTML = `<option value="">Todos os projetos</option>${D.souAdmin() ? `<option value="nenhum">Sem projeto</option>` : ""}` +
     D.projetosAtivos().map((p) => `<option value="${p.id}">${esc(p.nome)}</option>`).join("");
   sel.value = filtros.projeto;
   if (sel.value !== filtros.projeto) { filtros.projeto = ""; sel.value = ""; }
@@ -57,8 +59,9 @@ export function atualizar() {
   const h = hoje();
   const termo = normalizar(filtros.busca.trim());
   let lista = D.tarefasVivas().filter((t) => {
-    if (filtros.status === "abertas" && t.status === "concluida") return false;
-    if (!["abertas", "todas"].includes(filtros.status) && t.status !== filtros.status) return false;
+    if ((filtros.status === "abertas" || filtros.status === "minhas") && !D.aberta(t)) return false;
+    if (filtros.status === "minhas" && t.responsavel !== D.eu()?.email) return false;
+    if (!["abertas", "minhas", "todas"].includes(filtros.status) && t.status !== filtros.status) return false;
     if (filtros.projeto === "nenhum" && t.projetoId) return false;
     if (filtros.projeto && filtros.projeto !== "nenhum" && t.projetoId !== filtros.projeto) return false;
     if (filtros.prioridade && (t.prioridade || "normal") !== filtros.prioridade) return false;
@@ -66,7 +69,7 @@ export function atualizar() {
     if (filtros.prazo === "hoje" && t.prazo !== h) return false;
     if (filtros.prazo === "semana" && !(t.prazo && t.prazo >= h && t.prazo <= somarDias(h, 7))) return false;
     if (filtros.prazo === "sem" && t.prazo) return false;
-    if (termo && !normalizar(`${t.titulo} ${t.notas || ""}`).includes(termo)) return false;
+    if (termo && !normalizar(`${t.titulo} ${t.notas || ""} ${t.area || ""} ${D.nomeDe(t.responsavel)}`).includes(termo)) return false;
     return true;
   });
 

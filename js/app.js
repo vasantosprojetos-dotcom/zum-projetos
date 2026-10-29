@@ -105,7 +105,8 @@ function navegar() {
 
 function atualizarBadges() {
   const h = hoje();
-  const atrasadas = D.tarefasVivas().filter((t) => t.status === "aFazer" && t.prazo && t.prazo < h).length;
+  const eu = D.eu()?.email;
+  const atrasadas = D.tarefasVivas().filter((t) => D.naMao(t) && t.prazo && t.prazo < h && (!t.responsavel || t.responsavel === eu)).length;
   document.querySelectorAll('[data-badge="hoje"]').forEach((b) => { b.textContent = atrasadas || ""; b.hidden = !atrasadas; });
 }
 
@@ -142,19 +143,72 @@ D.aoMudar(() => {
 });
 
 // ---------------- Sessão ----------------
-fb.aoMudarUsuario(async (u) => {
-  if (!u) { D.parar(); jaNavegou = false; telaLogin(); return; }
-  Ajustes.definirUsuario(u);
-  montarShell();
+function telaAviso(titulo, texto) {
+  shellMontado = false;
+  app.innerHTML = `
+    <main class="login">
+      <div class="login-caixa">
+        <img src="icones/icone-192.png" alt="" class="login-logo" width="64" height="64">
+        <h1>${esc(titulo)}</h1>
+        <p class="texto-suave">${texto}</p>
+        <button class="botao largo" type="button" id="aviso-sair">Sair</button>
+      </div>
+    </main>`;
+  document.getElementById("aviso-sair").onclick = () => fb.sair();
+}
+
+let desligarPerfil = null;
+function comecar(perfil) {
+  Ajustes.definirUsuario(perfil);
+  if (!shellMontado) montarShell();
+  jaNavegou = false;
   navegar();
-  D.iniciar();
-  await D.prepararPrimeiroUso().catch((e) => console.warn(e));
-  // tarefas de manutenção, sem atrapalhar o uso
-  setTimeout(() => {
-    if (!D.pronto()) return;
-    copiaAutomaticaSePreciso();
-    D.limparLixeiraAntiga();
-  }, 4000);
+  D.iniciar(perfil);
+}
+
+fb.aoMudarUsuario(async (u) => {
+  if (desligarPerfil) { desligarPerfil(); desligarPerfil = null; }
+  if (!u) { D.parar(); jaNavegou = false; telaLogin(); return; }
+  app.innerHTML = `<div class="carregando"><span></span></div>`;
+  shellMontado = false;
+
+  if (u.uid === fb.UID_ADMIN) {
+    try {
+      const r = await D.migrarSePreciso(u);
+      if (!r.jaFeito) avisar(`Dados movidos para a pasta da equipe: ${r.projetos} projetos, ${r.tarefas} tarefas.`);
+    } catch (e) {
+      console.error(e);
+      telaAviso("Falta um passo", "Não consegui preparar os dados para a equipe. Confira se as novas regras de segurança foram publicadas no Firebase e entre de novo.");
+      return;
+    }
+    const minha = await fb.lerUm("pessoas", u.email).catch(() => null);
+    comecar({ email: u.email, nome: minha?.nome || "Vanessa", admin: true, colonias: [] });
+    await D.prepararPrimeiroUso().catch((e) => console.warn(e));
+    setTimeout(() => {
+      if (!D.pronto()) return;
+      copiaAutomaticaSePreciso();
+      D.limparLixeiraAntiga();
+    }, 4000);
+    return;
+  }
+
+  // Coordenadores: o cadastro em "pessoas" diz quais colônias cada um vê.
+  let chave = null;
+  desligarPerfil = fb.ouvirDoc("pessoas", u.email, (p) => {
+    if (!p || p.ativo === false) {
+      chave = null; D.parar();
+      telaAviso("Acesso ainda não liberado", `Sua conta (${esc(u.email)}) existe, mas ainda não foi ligada a nenhuma colônia. Fale com a Vanessa.`);
+      return;
+    }
+    const perfil = { email: u.email, nome: p.nome || u.email.split("@")[0], admin: false, colonias: p.colonias || [] };
+    const nova = JSON.stringify(perfil);
+    if (nova === chave) return;
+    chave = nova;
+    comecar(perfil);
+  }, (e) => {
+    console.error(e);
+    telaAviso("Acesso ainda não liberado", `Sua conta (${esc(u.email)}) ainda não foi cadastrada na equipe. Fale com a Vanessa.`);
+  });
 });
 
 // ---------------- App instalável (PWA) ----------------

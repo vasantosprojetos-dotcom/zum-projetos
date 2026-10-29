@@ -121,3 +121,10 @@ export function situacaoEvento(p) {
   const d = diasEntre(per.ini, h) + 1;
   return { tipo: "durante", texto: dias > 1 ? `acontecendo · dia ${d} de ${dias}` : "acontecendo hoje", dias };
 }
+
+// Áreas usadas nos checklists das colônias (o campo aceita outras também)
+export const AREAS = [
+  "Escola", "SMEL", "Financeiro", "Operação", "Passeio", "Inscrições", "Comunicação", "Patrocínio",
+  "Pedagógico", "Equipe", "Camisas", "Materiais", "Lanche", "Alimentação", "Transporte", "Hospedagem",
+  "Locações", "Compras", "Execução", "Fechamento", "Relatório", "Melhoria", "Estrutura"
+];

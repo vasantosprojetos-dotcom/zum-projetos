@@ -3,7 +3,7 @@ import * as D from "../dados.js";
 import * as B from "../backup.js";
 import { sair } from "../firebase.js";
 import { esc, dataCurta, diasEntre, hoje } from "../util.js";
-import { ICONES, avisar, confirmar } from "../componentes/ui.js";
+import { ICONES, avisar, confirmar, abrirModal, fecharModal } from "../componentes/ui.js";
 import { VERSAO } from "../versao.js";
 
 let raiz, usuario = null;
@@ -12,10 +12,25 @@ export function definirUsuario(u) { usuario = u; }
 
 export function montar(el) {
   raiz = el;
+  const admin = D.souAdmin();
   el.innerHTML = `
     <header class="cabecalho"><h1>Ajustes</h1></header>
 
+    ${admin ? `<section class="painel largo">
+      <div class="painel-topo"><h3>${ICONES.pessoa}Equipe</h3>
+        <button type="button" class="botao pequeno" data-aj="nova-pessoa">${ICONES.mais}Adicionar pessoa</button></div>
+      <p class="texto-suave pequeno">Cada pessoa vê só as colônias marcadas aqui. Antes, crie o login dela no Firebase (Authentication → Users → Add user) com o mesmo e-mail.</p>
+      <div id="equipe"></div>
+    </section>
+
     <section class="painel largo">
+      <div class="painel-topo"><h3>${ICONES.subir}Importar checklist</h3></div>
+      <p class="texto-suave pequeno">Traz as tarefas de cada edição da planilha (arquivo .json preparado pelo Claude) para dentro de uma colônia.</p>
+      <div class="linha-botoes"><label class="botao">${ICONES.subir}Escolher arquivo<input type="file" accept=".json,application/json" id="imp-arquivo" hidden></label></div>
+      <div id="imp-previa"></div>
+    </section>` : ""}
+
+    ${admin ? `<section class="painel largo">
       <div class="painel-topo"><h3>${ICONES.nuvem}Backup</h3></div>
       <p class="texto-suave pequeno">Seus dados ficam guardados no Firebase e sincronizam sozinhos. Além disso, o app faz uma <b>cópia automática por semana</b> e guarda as 8 mais recentes. Você também pode baixar um arquivo para guardar no computador.</p>
       <p class="pequeno" id="bk-info">Carregando…</p>
@@ -26,23 +41,36 @@ export function montar(el) {
       </div>
       <h4>Cópias automáticas</h4>
       <div id="bk-lista"><p class="texto-suave pequeno">Carregando…</p></div>
-    </section>
+    </section>` : ""}
 
     <section class="painel largo">
       <div class="painel-topo"><h3>${ICONES.lixo}Lixeira</h3></div>
-      <p class="texto-suave pequeno">Tarefas e projetos excluídos ficam aqui por 30 dias antes de sumirem de vez.</p>
+      <p class="texto-suave pequeno">${admin ? "Tarefas e projetos excluídos ficam aqui por 30 dias antes de sumirem de vez." : "Tarefas excluídas ficam aqui até a Vanessa esvaziar a lixeira. Você pode recuperar qualquer uma."}</p>
       <div id="lixeira"></div>
     </section>
 
     <section class="painel largo">
       <div class="painel-topo"><h3>${ICONES.pessoa}Conta</h3></div>
-      <p class="pequeno">Conectada como <b>${esc(usuario?.email || "")}</b></p>
+      <p class="pequeno">Conectado(a) como <b>${esc(usuario?.nome || "")}</b> · ${esc(usuario?.email || "")}</p>
       <div class="linha-botoes"><button type="button" class="botao" id="sair">${ICONES.sair}Sair deste aparelho</button></div>
       <p class="texto-suave pequeno rodape-versao">Zum Projetos · versão ${VERSAO}</p>
     </section>`;
 
+  el.addEventListener("click", cliqueAjustes);
   el.querySelector("#sair").onclick = async () => {
     if (await confirmar({ titulo: "Sair?", texto: "Você vai precisar do e-mail e da senha para entrar de novo neste aparelho.", botao: "Sair" })) sair();
+  };
+  if (!admin) { atualizar(); return; }
+  el.querySelector("#imp-arquivo").onchange = async (e) => {
+    const arq = e.target.files[0];
+    e.target.value = "";
+    if (!arq) return;
+    try {
+      const obj = JSON.parse(await arq.text());
+      if (obj.app !== "zum-checklists" || !Array.isArray(obj.edicoes)) throw new Error();
+      importacao = obj;
+      desenharImportacao();
+    } catch { avisar("Esse arquivo não é um checklist preparado para o app."); }
   };
   el.querySelector("#bk-agora").onclick = async () => {
     try { await B.fazerCopia("manual"); avisar("Cópia feita"); carregarBackups(); }
@@ -59,7 +87,6 @@ export function montar(el) {
       await restaurarCom(obj, `o arquivo "${arq.name}"`);
     } catch { avisar("Esse arquivo não é um backup do Zum Projetos."); }
   };
-  el.addEventListener("click", cliqueAjustes);
   carregarBackups();
   atualizar();
 }
@@ -102,13 +129,17 @@ async function cliqueAjustes(e) {
   const b = e.target.closest("[data-aj]");
   if (!b || !raiz.contains(b)) return;
   const acao = b.dataset.aj;
-  if (acao === "restaurar-copia") {
+  if (acao === "nova-pessoa") editarPessoa(null);
+  else if (acao === "editar-pessoa") editarPessoa(b.dataset.id);
+  else if (acao === "importar") importar(+b.dataset.i);
+  else if (acao === "restaurar-copia") {
     const c = copias.find((x) => x.id === b.dataset.id);
     if (c) restaurarCom(JSON.parse(c.dados), `a cópia de ${dataCurta(c.criadoEm.slice(0, 10))}`);
   } else if (acao === "recuperar") {
     D.restaurar(b.dataset.tipo, b.dataset.id);
     avisar("Recuperado");
   } else if (acao === "apagar") {
+    if (!D.souAdmin()) return;
     const ok = await confirmar({ titulo: "Apagar de vez?", texto: "Isso não pode ser desfeito.", botao: "Apagar", perigo: true });
     if (ok) { D.excluirDefinitivo(b.dataset.tipo, b.dataset.id); avisar("Apagado"); }
   }
@@ -116,12 +147,92 @@ async function cliqueAjustes(e) {
 
 export function atualizar() {
   if (!raiz) return;
+  desenharEquipe();
   const itens = D.lixeira();
   raiz.querySelector("#lixeira").innerHTML = itens.length ? `<ul class="lista-simples">${itens.map(({ tipo, item, quando }) => {
     const resta = Math.max(0, 30 - diasEntre(quando.slice(0, 10), hoje()));
     return `<li><span class="data-tag">${tipo === "projeto" ? "Projeto" : "Tarefa"}</span>
-      <span class="flex1">${esc(tipo === "projeto" ? item.nome : item.titulo)}<small class="texto-suave"> · some em ${resta} dia${resta === 1 ? "" : "s"}</small></span>
+      <span class="flex1">${esc(tipo === "projeto" ? item.nome : item.titulo)}<small class="texto-suave">${D.souAdmin() ? ` · some em ${resta} dia${resta === 1 ? "" : "s"}` : ""}</small></span>
       <button type="button" class="link pequeno" data-aj="recuperar" data-tipo="${tipo}" data-id="${item.id}">Recuperar</button>
-      <button type="button" class="link pequeno perigo" data-aj="apagar" data-tipo="${tipo}" data-id="${item.id}">Apagar</button></li>`;
+      ${D.souAdmin() ? `<button type="button" class="link pequeno perigo" data-aj="apagar" data-tipo="${tipo}" data-id="${item.id}">Apagar</button>` : ""}</li>`;
   }).join("")}</ul>` : `<p class="texto-suave pequeno">A lixeira está vazia.</p>`;
+}
+
+// ---------------- Equipe ----------------
+function desenharEquipe() {
+  const el = raiz.querySelector("#equipe");
+  if (!el) return;
+  const nomesColonias = (ids) => (ids || []).map((id) => D.projeto(id)?.nome).filter(Boolean);
+  const ps = D.pessoas().filter((p) => p.papel !== "admin");
+  el.innerHTML = ps.length ? `<ul class="lista-simples">${ps.map((p) => `
+    <li><span class="flex1"><b>${esc(p.nome || p.id)}</b>${p.ativo === false ? ` <span class="pilula">sem acesso</span>` : ""}<br>
+      <small class="texto-suave">${esc(p.id)} · ${esc(nomesColonias(p.colonias).join(", ") || "nenhuma colônia")}</small></span>
+      <button type="button" class="link pequeno" data-aj="editar-pessoa" data-id="${esc(p.id)}">Editar</button></li>`).join("")}</ul>`
+    : `<p class="texto-suave pequeno">Ninguém cadastrado ainda.</p>`;
+}
+
+function editarPessoa(email) {
+  const p = email ? D.pessoas().find((x) => x.id === email) : { nome: "", colonias: [], ativo: true };
+  const cols = D.colonias();
+  abrirModal({
+    titulo: email ? "Editar pessoa" : "Adicionar pessoa",
+    corpo: `<form class="formulario" id="form-pessoa" autocomplete="off">
+      <label>Nome<input class="campo" name="nome" value="${esc(p.nome || "")}" required ${email ? "" : "autofocus"}></label>
+      <label>E-mail do login<input class="campo" name="email" type="email" value="${esc(email || "")}" ${email ? "readonly" : "required"}></label>
+      <fieldset class="caixas"><legend>Colônias que vê</legend>
+        ${cols.length ? cols.map((c) => `<label class="caixa"><input type="checkbox" name="col" value="${c.id}" ${(p.colonias || []).includes(c.id) ? "checked" : ""}> ${esc(c.nome)}${c.grupo ? ` <small class="texto-suave">· ${esc(c.grupo)}</small>` : ""}</label>`).join("")
+          : `<p class="texto-suave pequeno">Nenhum projeto marcado como colônia ainda. Abra o projeto, toque em Editar e escolha o tipo Colônia.</p>`}
+      </fieldset>
+      <label class="interruptor"><input type="checkbox" name="ativo" ${p.ativo !== false ? "checked" : ""}><span></span>Acesso liberado</label>
+    </form>`,
+    rodape: `<span class="espaco"></span><button type="button" class="botao" data-cancelar>Cancelar</button>
+      <button type="submit" form="form-pessoa" class="botao primario">Salvar</button>`,
+    aoMontar(m) {
+      m.querySelector("[data-cancelar]").onclick = fecharModal;
+      const f = m.querySelector("form");
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const em = (email || f.email.value).trim().toLowerCase();
+        if (!em || !f.nome.value.trim()) return;
+        const colonias = [...f.querySelectorAll('input[name="col"]:checked')].map((x) => x.value);
+        await D.salvarPessoa(em, { nome: f.nome.value.trim(), papel: "coord", colonias, ativo: f.ativo.checked }).catch(() => null);
+        fecharModal();
+        avisar("Equipe atualizada");
+      };
+    }
+  });
+}
+
+// ---------------- Importar checklist ----------------
+let importacao = null;
+function desenharImportacao() {
+  const el = raiz.querySelector("#imp-previa");
+  if (!importacao) { el.innerHTML = ""; return; }
+  const opcoes = (sug) => D.todosProjetos().map((p) =>
+    `<option value="${p.id}" ${sug && p.nome === sug ? "selected" : ""}>${esc(p.nome)}${p.tipo === "colonia" ? " (colônia)" : ""}</option>`).join("");
+  el.innerHTML = `<ul class="lista-simples">${importacao.edicoes.map((ed, i) => `
+    <li class="imp-linha"><span class="flex1"><b>${esc(ed.nome)}</b><br><small class="texto-suave">${ed.tarefas.length} tarefas · ${esc(ed.periodo || "")}</small></span>
+      ${ed.importada ? `<span class="pilula">Importada</span>` : `
+      <select class="campo" id="imp-dest-${i}"><option value="">Criar colônia nova: ${esc(ed.nomeSugerido || ed.nome)}</option>${opcoes()}</select>
+      <button type="button" class="botao pequeno primario" data-aj="importar" data-i="${i}">Importar</button>`}</li>`).join("")}</ul>
+    <p class="texto-suave pequeno">O responsável vem da planilha: “Vanessa” fica com você; os nomes da coordenação local vão para o coordenador cadastrado naquela colônia em Equipe (cadastre a equipe antes de importar).</p>`;
+}
+
+async function importar(i) {
+  const ed = importacao.edicoes[i];
+  const destino = raiz.querySelector(`#imp-dest-${i}`).value || null;
+  const nomeDestino = destino ? D.projeto(destino).nome : (ed.nomeSugerido || ed.nome);
+  const jaTem = destino ? D.tarefasDoProjeto(destino).length : 0;
+  const ok = await confirmar({
+    titulo: "Importar tarefas?",
+    texto: `${ed.tarefas.length} tarefas de "${ed.nome}" vão para "${nomeDestino}"${jaTem ? `, que já tem ${jaTem} tarefas (as atuais ficam como estão)` : ""}. O projeto passa a ser uma colônia.`,
+    botao: "Importar"
+  });
+  if (!ok) return;
+  try {
+    const r = await D.importarEdicao(ed, destino, ed.nomeSugerido);
+    ed.importada = true;
+    desenharImportacao();
+    avisar(`${r.tarefas} tarefas importadas${r.local ? ` · coordenação: ${r.local}` : ""}`);
+  } catch (e) { console.error(e); avisar("Não consegui importar. Nada foi perdido; tente de novo."); }
 }
