@@ -270,6 +270,7 @@ function menuProjeto(ancora, p) {
     { separador: true },
     { rotulo: "Remover tarefas repetidas", icone: ICONES.duplicadas, fn: () => removerRepetidas(p) },
     { rotulo: "Mover tarefas para outro projeto", icone: ICONES.mover, fn: () => moverTarefas(p) },
+    ...(D.unidadesDaRede(p.id).length ? [{ rotulo: "Organizar checklist da rede", icone: ICONES.projetos, fn: () => organizarRede(p) }] : []),
     { separador: true },
     { rotulo: "Excluir projeto", icone: ICONES.lixo, perigo: true, fn: () => excluir(p) }
   ]);
@@ -482,6 +483,42 @@ function editarContato(i) {
         if (i === null) contatos.push(novo); else contatos[i] = novo;
         D.atualizarProjeto(p.id, { contatos });
         fecharModal();
+      };
+    }
+  });
+}
+
+// ---------- Organizar checklist da rede ----------
+async function organizarRede(p) {
+  let plano;
+  try { plano = await D.planoOrganizarRede(p.id); }
+  catch (e) {
+    avisar(e.message === "sem-conexao" ? "Não consegui conferir o banco agora. Atualize a página e tente de novo."
+      : "Para organizar, o projeto da rede precisa ter as datas do evento e as unidades no mesmo grupo.");
+    return;
+  }
+  const nada = !plano.paraRede.length && !plano.lixeira.length && !plano.unidades.some((x) => x.datas.length);
+  if (nada) { avisar("O checklist da rede já está organizado."); return; }
+  abrirModal({
+    titulo: "Organizar checklist da rede",
+    corpo: `<p class="texto-suave">As tarefas da direção e as da rede ficam uma vez só em “${esc(p.nome)}”. Cada unidade fica com as da coordenação local, com os prazos da sua semana. Nada é apagado de vez: as cópias vão para a lixeira.</p>
+      <ul class="lista-simples">
+        <li><span class="flex1">Vão para <b>${esc(p.nome)}</b></span><span class="pilula">${plano.paraRede.length}</span></li>
+        <li><span class="flex1">Cópias repetidas para a lixeira</span><span class="pilula">${plano.lixeira.length}</span></li>
+        ${plano.unidades.map((x) => `<li><span class="flex1"><b>${esc(x.u.nome)}</b><br><small class="texto-suave">fica com ${x.ficam} tarefas · ${x.datas.length ? `${x.datas.length} prazos ajustados` : "prazos já certos"}</small></span></li>`).join("")}
+      </ul>`,
+    rodape: `<span class="espaco"></span><button type="button" class="botao" data-cancelar>Cancelar</button>
+      <button type="button" class="botao primario" data-ok>Organizar</button>`,
+    aoMontar(m) {
+      m.querySelector("[data-cancelar]").onclick = fecharModal;
+      const ok = m.querySelector("[data-ok]");
+      ok.onclick = async () => {
+        ok.disabled = true;
+        try {
+          const r = await D.organizarRede(plano);
+          fecharModal();
+          avisar(`Pronto: ${r.paraRede} na rede · ${r.lixeira} cópias na lixeira · ${r.datas} prazos ajustados`);
+        } catch { ok.disabled = false; }
       };
     }
   });

@@ -512,3 +512,79 @@ export async function moverTarefas(origemId, destinoId, { pularRepetidas = true,
   repetidas.forEach((t) => registro(t.id, "excluiu", `enviou para a lixeira (já existia em “${para.nome}”)`));
   return { movidas: movidas.length, repetidas: repetidas.length };
 }
+
+// ---------------- Organizar checklist de uma rede ----------------
+// O checklist da rede (ex.: Santa Maria) foi importado inteiro em cada unidade. Isto:
+// - leva as tarefas da direção e as da rede (âncora "Semana 2" ou "por unidade") para o projeto da rede,
+//   uma vez só (as cópias das outras unidades vão para a lixeira);
+// - deixa em cada unidade só as da coordenação local, com o prazo recalculado pela semana da unidade
+//   (âncora Início → data de início da unidade; Término → data de término), sem cair em fim de semana.
+const ehDaRede = (t) => t.papel === "direcao" || t.ancora === "Semana 2" || /por (cada )?unidade/i.test(t.titulo || "");
+function somarDiasUteis(data, delta) {
+  if (!data || !delta) return data;
+  const d = new Date(`${data}T12:00:00`);
+  d.setDate(d.getDate() + delta);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+const diasEntreDatas = (a, b) => Math.round((new Date(`${b}T12:00:00`) - new Date(`${a}T12:00:00`)) / 86400000);
+
+export const unidadesDaRede = (redeId) => {
+  const r = projeto(redeId);
+  return r?.grupo ? colonias().filter((p) => p.id !== redeId && p.grupo === r.grupo) : [];
+};
+
+export async function planoOrganizarRede(redeId) {
+  const rede = projeto(redeId);
+  const unidades = unidadesDaRede(redeId);
+  if (!rede || !unidades.length || !rede.dataInicio) throw new Error("sem-rede");
+  const ler = (pid) => fb.lerOndeServidor("tarefas", "projetoId", pid).then((l) => l.filter((t) => !t.excluidaEm));
+  let naRede, porUnidade;
+  try { [naRede, ...porUnidade] = await Promise.all([ler(redeId), ...unidades.map((u) => ler(u.id))]); }
+  catch (e) { console.error(e); throw new Error("sem-conexao"); }
+  const redeFim = rede.dataFim || rede.dataInicio;
+  const tem = new Set(naRede.map(chaveTarefa));
+  const plano = { rede, paraRede: [], lixeira: [], unidades: [] };
+  unidades.forEach((u, i) => {
+    const dIni = u.dataInicio ? diasEntreDatas(rede.dataInicio, u.dataInicio) : 0;
+    const dFim = u.dataFim ? diasEntreDatas(redeFim, u.dataFim) : dIni;
+    const datas = [];
+    for (const t of porUnidade[i]) {
+      if (!t.origem) continue; // tarefas criadas à mão ficam onde estão
+      if (ehDaRede(t)) {
+        const k = chaveTarefa(t);
+        if (tem.has(k)) plano.lixeira.push(t); else { tem.add(k); plano.paraRede.push(t); }
+      } else if ((t.ancora === "Início" || t.ancora === "Término") && t.prazoDaUnidade !== u.id) {
+        const delta = t.ancora === "Início" ? dIni : dFim;
+        if (delta) datas.push({ t, prazo: somarDiasUteis(t.prazo, delta), prazoModelo: somarDiasUteis(t.prazoModelo, delta) });
+      }
+    }
+    plano.unidades.push({ u, ficam: porUnidade[i].filter((t) => t.origem && !ehDaRede(t)).length, datas });
+  });
+  return plano;
+}
+
+export async function organizarRede(plano) {
+  if (!souAdmin()) throw new Error("so-admin");
+  const { rede } = plano;
+  const quando = agora();
+  const coordRede = coordenadorLocal(rede.id);
+  const ops = [];
+  const base = { atualizadaPor: perfil.email, atualizadaEm: quando };
+  for (const t of plano.paraRede) {
+    const dados = { ...base, projetoId: rede.id, coloniaId: coloniaDe(rede.id) };
+    if (t.papel !== "direcao") dados.responsavel = coordRede?.id || perfil.email;
+    ops.push({ tipo: "merge", col: "tarefas", id: t.id, dados });
+  }
+  for (const t of plano.lixeira) ops.push({ tipo: "merge", col: "tarefas", id: t.id, dados: { ...base, excluidaEm: quando } });
+  for (const { datas } of plano.unidades)
+    for (const x of datas) ops.push({ tipo: "merge", col: "tarefas", id: x.t.id, dados: { ...base, prazo: x.prazo, prazoModelo: x.prazoModelo, prazoDaUnidade: x.t.projetoId } });
+  const fases = [...(rede.fases || [])];
+  for (const t of plano.paraRede) if (t.fase && !fases.includes(t.fase)) fases.push(t.fase);
+  ops.push({ tipo: "merge", col: "projetos", id: rede.id, dados: { fases, atualizadoEm: quando } });
+  await gravar(fb.emLote(ops));
+  plano.paraRede.forEach((t) => registro(t.id, "mudou", `moveu para “${rede.nome}” (tarefa da rede)`));
+  plano.lixeira.forEach((t) => registro(t.id, "excluiu", "enviou para a lixeira (já está na rede)"));
+  plano.unidades.forEach(({ datas }) => datas.forEach((x) => registro(x.t.id, "mudou", `ajustou o prazo para a semana da unidade (${x.prazo})`)));
+  return { paraRede: plano.paraRede.length, lixeira: plano.lixeira.length, datas: plano.unidades.reduce((n, x) => n + x.datas.length, 0) };
+}
