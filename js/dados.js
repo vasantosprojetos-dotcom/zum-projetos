@@ -375,7 +375,7 @@ export function jaExistemNoDestino(edicao, destinoId) {
 export async function importarEdicao(edicao, destinoId, novoNome) {
   if (!souAdmin()) throw new Error("so-admin");
   if (destinoId !== "__novo__" && !projeto(destinoId)) throw new Error("sem-destino");
-  if (ondeFoiImportada(edicao.nome).length) throw new Error("ja-importada");
+  if (ondeFoiImportada(edicao.nome).some((x) => x.projeto.id === destinoId)) throw new Error("ja-importada");
   let pid = destinoId === "__novo__" ? null : destinoId;
   if (!pid) {
     pid = criarProjeto({ nome: novoNome || edicao.nome, tipo: "colonia", status: "Aprovado", fases: edicao.fases,
