@@ -10,7 +10,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, onSnapshot, setDoc, deleteDoc, getDocs, getDoc, writeBatch,
-  query, where, addDoc
+  query, where, addDoc, getDocsFromServer, getDocFromServer
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
@@ -77,6 +77,15 @@ export async function ler(col) {
 
 export async function lerUm(col, id) {
   const s = await getDoc(doc(db, col, id));
+  return s.exists() ? { id: s.id, ...s.data() } : null;
+}
+
+// Leituras direto do servidor (sem usar a cópia local). Falham se não houver conexão.
+export async function lerOndeServidor(col, campo, valor) {
+  return lista(await getDocsFromServer(query(collection(db, col), where(campo, "==", valor))));
+}
+export async function lerUmServidor(col, id) {
+  const s = await getDocFromServer(doc(db, col, id));
   return s.exists() ? { id: s.id, ...s.data() } : null;
 }
 

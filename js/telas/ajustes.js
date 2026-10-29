@@ -279,7 +279,9 @@ async function importar(i) {
     avisar(`${r.tarefas} tarefas importadas${r.puladas ? ` · ${r.puladas} já existiam` : ""}${r.local ? ` · coordenação: ${r.local}` : ""}`);
   } catch (e) {
     console.error(e);
-    avisar(e.message === "ja-importada" ? "Essa edição já foi importada." : "Não consegui importar. Nada foi perdido; tente de novo.");
+    avisar(e.message === "ja-importada" ? "Essa edição já está nesse projeto. Nada foi importado."
+      : e.message === "sem-conexao" ? "Não consegui conferir o banco agora, então não importei nada. Atualize a página e tente de novo."
+      : "Não consegui importar. Nada foi perdido; tente de novo.");
   } finally {
     importando = false;
     liberadas.delete(i);

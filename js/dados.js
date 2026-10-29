@@ -381,6 +381,16 @@ export async function importarEdicao(edicao, destinoId, novoNome) {
   if (destinoId !== "__novo__" && !projeto(destinoId)) throw new Error("sem-destino");
   if (ondeFoiImportada(edicao.nome).some((x) => x.projeto.id === destinoId)) throw new Error("ja-importada");
   let pid = destinoId === "__novo__" ? null : destinoId;
+  // Confere NO BANCO (não na tela, que pode estar desatualizada) o que o destino já tem.
+  let doBanco = [];
+  if (pid) {
+    let pBanco;
+    try {
+      [doBanco, pBanco] = await Promise.all([fb.lerOndeServidor("tarefas", "projetoId", pid), fb.lerUmServidor("projetos", pid)]);
+    } catch (e) { console.error(e); throw new Error("sem-conexao"); }
+    doBanco = doBanco.filter((t) => !t.excluidaEm);
+    if (doBanco.some((t) => t.origem === edicao.nome)) throw new Error("ja-importada");
+  }
   if (!pid) {
     pid = criarProjeto({ nome: novoNome || edicao.nome, tipo: "colonia", status: "Aprovado", fases: edicao.fases,
       dataInicio: edicao.inicio, dataFim: edicao.fim });
@@ -396,7 +406,7 @@ export async function importarEdicao(edicao, destinoId, novoNome) {
   const local = coordenadorLocal(pid);
   const quem = (papel) => (papel === "direcao" ? perfil.email : papel === "local" ? (local?.id || perfil.email) : "");
   // Nunca repete: pula o que o destino já tem com o mesmo título e fase.
-  const tem = new Set(tarefasDoProjeto(pid).map(chaveTarefa));
+  const tem = new Set([...tarefasDoProjeto(pid), ...doBanco].map(chaveTarefa));
   const ops = [];
   let puladas = 0;
   edicao.tarefas.forEach((t, i) => {
