@@ -692,7 +692,7 @@ export async function novaEdicao(pid, { nome, modeloId, inicio, fim, semana2, no
   const edicoes = [...(p.edicoes || [])];
   if (encerrar.length) {
     const sem = encerrar.filter((t) => t.status !== "naoSeAplica");
-    edicoes.push({ nome: nomeAnterior || "Edição anterior", inicio: p.edicaoAtual?.inicio || p.dataInicio || null,
+    edicoes.push({ nome: nomeAnterior || "Edição anterior", relatorio: p.relatorio || null, inicio: p.edicaoAtual?.inicio || p.dataInicio || null,
       fim: p.edicaoAtual?.fim || p.dataFim || null, encerradaEm: quando,
       total: sem.length, feitas: sem.filter((t) => t.status === "concluida").length });
   }
@@ -716,7 +716,7 @@ export async function novaEdicao(pid, { nome, modeloId, inicio, fim, semana2, no
   for (const t of levarAbertas ? manuaisAbertas : []) if (t.fase && !fases.includes(t.fase)) fases.push(t.fase);
   ops.push({ tipo: "merge", col: "projetos", id: pid, dados: {
     edicaoAtual: { nome, modelo: modeloId, inicio, fim: fim || null, semana2: semana2 || null },
-    edicoes, dataInicio: inicio, dataFim: fim && fim > inicio ? fim : null, fases, proximoPasso: "", atualizadoEm: quando
+    edicoes, relatorio: null, dataInicio: inicio, dataFim: fim && fim > inicio ? fim : null, fases, proximoPasso: "", atualizadoEm: quando
   } });
   await gravar(fb.emLote(ops));
   return { criadas: novas.length, encerradas: encerrar.length, levadas: levarAbertas ? manuaisAbertas.length : 0 };
@@ -757,4 +757,10 @@ export function cargaPorSemana(semanas = 12) {
     out.push({ de, ate, total: ts.length, porColonia, emExecucao, inclui_atrasadas: i === 0 });
   }
   return out;
+}
+
+// ---------------- Relatório (parte de campo) ----------------
+// campos: pedaços do relatório; mapas são mesclados (ex.: { ficha: { inscritos: 40 } }), listas são substituídas.
+export function salvarRelatorio(pid, campos) {
+  return gravar(fb.salvar("projetos", pid, { relatorio: { ...campos, atualizadoPor: perfil?.email || "", atualizadoEm: agora() } }));
 }

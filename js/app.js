@@ -11,9 +11,10 @@ import * as Projetos from "./telas/projetos.js";
 import * as Tarefas from "./telas/tarefas.js";
 import * as Ajustes from "./telas/ajustes.js";
 import * as Modelos from "./telas/modelos.js";
+import * as Relatorio from "./telas/relatorio.js";
 
 const app = document.getElementById("app");
-const TELAS = { hoje: Hoje, projetos: Projetos, projeto: Projetos, tarefas: Tarefas, modelos: Modelos, ajustes: Ajustes };
+const TELAS = { hoje: Hoje, projetos: Projetos, projeto: Projetos, tarefas: Tarefas, modelos: Modelos, relatorio: Relatorio, ajustes: Ajustes };
 let telaAtual = null;
 let shellMontado = false;
 
@@ -95,7 +96,7 @@ function navegar() {
   if (!shellMontado) return;
   fecharMenu(); fecharModal();
   const { nome, id } = rotaAtual();
-  const ativo = nome === "projeto" ? "projetos" : nome;
+  const ativo = nome === "projeto" || nome === "relatorio" ? "projetos" : nome;
   document.querySelectorAll("[data-rota]").forEach((a) => a.classList.toggle("ativo", a.dataset.rota === ativo));
   const el = document.getElementById("conteudo");
   if (!D.pronto()) { el.innerHTML = `<div class="carregando"><span></span></div>`; telaAtual = null; return; }

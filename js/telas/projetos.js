@@ -192,6 +192,7 @@ function atualizarDetalhe() {
         </div>
       </div>
       <div class="acoes">
+        ${p.tipo === "colonia" ? `<a class="botao" href="#/relatorio/${p.id}">${ICONES.nota}Relatório${p.relatorio?.status === "enviado" && D.souAdmin() ? ` <span class="pilula vermelha">revisar</span>` : ""}</a>` : ""}
         ${D.souAdmin() && p.tipo === "colonia" ? `<button type="button" class="botao" data-det="nova-edicao">${ICONES.mais}Nova edição</button>` : ""}
         <button type="button" class="botao" data-det="editar">${ICONES.lapis}Editar</button>
         ${D.souAdmin() ? `<button type="button" class="botao-icone" data-det="mais" aria-label="Mais opções">${ICONES.mais3}</button>` : ""}
