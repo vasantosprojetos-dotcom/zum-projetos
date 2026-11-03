@@ -91,6 +91,23 @@ export function equipeDoProjeto(pid) {
   return [...admins, ...ativos.filter((x) => x.papel !== "admin" && (x.colonias || []).includes(pid))];
 }
 
+// Troca o e-mail de alguém da equipe: cria o cadastro novo, passa as tarefas e apaga o antigo.
+export async function trocarEmailPessoa(antigo, novo) {
+  if (!souAdmin()) throw new Error("so-admin");
+  novo = novo.trim().toLowerCase();
+  const p = estado.pessoas.find((x) => x.id === antigo);
+  if (!p || !novo || novo === antigo) throw new Error("dados");
+  if (estado.pessoas.some((x) => x.id === novo)) throw new Error("ja-existe");
+  const { id, ...dados } = p;
+  const quando = agora();
+  const ops = [{ tipo: "set", col: "pessoas", id: novo, dados: { ...dados, atualizadaEm: quando } }];
+  const ts = estado.tarefas.filter((t) => t.responsavel === antigo);
+  for (const t of ts) ops.push({ tipo: "merge", col: "tarefas", id: t.id, dados: { responsavel: novo, atualizadaPor: perfil.email, atualizadaEm: quando } });
+  ops.push({ tipo: "delete", col: "pessoas", id: antigo });
+  await gravar(fb.emLote(ops));
+  return ts.length;
+}
+
 export function salvarPessoa(email, campos) {
   return gravar(fb.salvar("pessoas", email.trim().toLowerCase(), { ...campos, atualizadaEm: agora() }));
 }

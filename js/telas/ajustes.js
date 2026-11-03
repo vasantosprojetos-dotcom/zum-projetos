@@ -200,10 +200,12 @@ function editarPessoa(email) {
       </fieldset>
       <label class="interruptor"><input type="checkbox" name="ativo" ${p.ativo !== false ? "checked" : ""}><span></span>Acesso liberado</label>
     </form>`,
-    rodape: `<span class="espaco"></span><button type="button" class="botao" data-cancelar>Cancelar</button>
+    rodape: `${email ? `<button type="button" class="botao texto" data-trocar>Trocar e-mail</button>` : ""}<span class="espaco"></span><button type="button" class="botao" data-cancelar>Cancelar</button>
       <button type="submit" form="form-pessoa" class="botao primario">Salvar</button>`,
     aoMontar(m) {
       m.querySelector("[data-cancelar]").onclick = fecharModal;
+      const trocar = m.querySelector("[data-trocar]");
+      if (trocar) trocar.onclick = () => trocarEmail(email, p.nome || email);
       const f = m.querySelector("form");
       f.onsubmit = async (e) => {
         e.preventDefault();
@@ -299,4 +301,35 @@ async function importar(i) {
     liberadas.delete(i);
     desenharImportacao();
   }
+}
+
+function trocarEmail(antigo, nome) {
+  abrirModal({
+    titulo: `Trocar e-mail · ${nome}`,
+    largura: "estreita",
+    corpo: `<form class="formulario" id="form-troca" autocomplete="off">
+      <p class="texto-suave pequeno">E-mail atual: <b>${esc(antigo)}</b></p>
+      <label>E-mail certo<input class="campo" type="email" name="novo" required autofocus></label>
+      <p class="texto-suave pequeno">As colônias e as tarefas de ${esc(nome)} passam para o e-mail novo. O login com esse e-mail precisa existir no Firebase (Authentication → Users).</p>
+    </form>`,
+    rodape: `<span class="espaco"></span><button type="button" class="botao" data-cancelar>Cancelar</button>
+      <button type="submit" form="form-troca" class="botao primario">Trocar</button>`,
+    aoMontar(m) {
+      m.querySelector("[data-cancelar]").onclick = fecharModal;
+      const f = m.querySelector("form");
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const b = m.querySelector('[form="form-troca"]');
+        b.disabled = true;
+        try {
+          const qtd = await D.trocarEmailPessoa(antigo, f.novo.value);
+          fecharModal();
+          avisar(`E-mail trocado · ${qtd} tarefa${qtd === 1 ? "" : "s"} passada${qtd === 1 ? "" : "s"} para o novo`);
+        } catch (err) {
+          b.disabled = false;
+          avisar(err.message === "ja-existe" ? "Esse e-mail já está cadastrado na equipe." : "Não consegui trocar. Nada foi mudado; tente de novo.");
+        }
+      };
+    }
+  });
 }
