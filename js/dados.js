@@ -29,15 +29,41 @@ function gravar(p) {
   });
 }
 
+// Escuta que se religa sozinha: se o Firebase derrubar a escuta (internet oscilando, várias abas,
+// limite do dia), ela é aberta de novo em alguns segundos, quando a internet volta ou quando a aba volta a aparecer.
+const caidas = new Set();
+function escutar(abrir, aoDado) {
+  let cancelar = null, parado = false, tentativas = 0, timer = null;
+  const religar = () => { clearTimeout(timer); caidas.delete(religar); if (!parado && !cancelar) ligar(); };
+  function ligar() {
+    cancelar = abrir((...a) => { tentativas = 0; aoDado(...a); }, (e) => {
+      console.warn("Escuta caiu, religando…", e);
+      cancelar = null;
+      if (parado) return;
+      tentativas++;
+      if (tentativas === 4) erroLeitura(e); // só avisa se não voltar depois de algumas tentativas
+      caidas.add(religar);
+      timer = setTimeout(religar, Math.min(30000, 1500 * tentativas));
+    });
+  }
+  ligar();
+  return () => { parado = true; clearTimeout(timer); caidas.delete(religar); if (cancelar) cancelar(); };
+}
+const religarCaidas = () => [...caidas].forEach((f) => f());
+if (typeof window !== "undefined") {
+  window.addEventListener("online", religarCaidas);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") religarCaidas(); });
+}
+
 export function iniciar(p) {
   parar();
   perfil = p;
-  desligar.push(fb.ouvir("pessoas", (l) => { estado.pessoas = l; avisar(); }, () => {}));
+  desligar.push(escutar((ok, erro) => fb.ouvir("pessoas", ok, erro), (l) => { estado.pessoas = l; avisar(); }));
   if (p.admin) {
-    desligar.push(fb.ouvirDoc("config", "modelos", (doc) => { estado.modelos = doc?.lista || null; avisar(); }, () => {}));
-    desligar.push(fb.ouvirDoc("config", "feriados", (doc) => { estado.feriados = doc?.lista || null; avisar(); }, () => {}));
-    desligar.push(fb.ouvir("projetos", (l) => { estado.projetos = l; estado.prontoP = true; avisar(); }, erroLeitura));
-    desligar.push(fb.ouvir("tarefas", (l) => { estado.tarefas = l; estado.prontoT = true; avisar(); }, erroLeitura));
+    desligar.push(escutar((ok, erro) => fb.ouvirDoc("config", "modelos", ok, erro), (doc) => { estado.modelos = doc?.lista || null; avisar(); }));
+    desligar.push(escutar((ok, erro) => fb.ouvirDoc("config", "feriados", ok, erro), (doc) => { estado.feriados = doc?.lista || null; avisar(); }));
+    desligar.push(escutar((ok, erro) => fb.ouvir("projetos", ok, erro), (l) => { estado.projetos = l; estado.prontoP = true; avisar(); }));
+    desligar.push(escutar((ok, erro) => fb.ouvir("tarefas", ok, erro), (l) => { estado.tarefas = l; estado.prontoT = true; avisar(); }));
     return;
   }
   // Coordenador: um "ouvido" por colônia que acompanha
@@ -53,10 +79,10 @@ export function iniciar(p) {
   };
   if (!ids.length) { estado.prontoP = estado.prontoT = true; avisar(); return; }
   for (const id of ids) {
-    desligar.push(fb.ouvirDoc("projetos", id, (doc) => { projs.set(id, doc); faltamP.delete(id); juntar(); },
-      (e) => { faltamP.delete(id); juntar(); erroLeitura(e); }));
-    desligar.push(fb.ouvirOnde("tarefas", "coloniaId", id, (l) => { tars.set(id, l); faltamT.delete(id); juntar(); },
-      (e) => { faltamT.delete(id); juntar(); erroLeitura(e); }));
+    desligar.push(escutar((ok, erro) => fb.ouvirDoc("projetos", id, ok, (e) => { faltamP.delete(id); juntar(); erro(e); }),
+      (doc) => { projs.set(id, doc); faltamP.delete(id); juntar(); }));
+    desligar.push(escutar((ok, erro) => fb.ouvirOnde("tarefas", "coloniaId", id, ok, (e) => { faltamT.delete(id); juntar(); erro(e); }),
+      (l) => { tars.set(id, l); faltamT.delete(id); juntar(); }));
   }
 }
 export function parar() {
