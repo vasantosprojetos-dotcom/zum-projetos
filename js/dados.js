@@ -41,6 +41,12 @@ function escutar(abrir, aoDado) {
       cancelar = null;
       if (parado) return;
       tentativas++;
+      // Acesso negado costuma ser login vencido: renova a sessão antes de tentar de novo.
+      if (e?.code === "permission-denied" && tentativas <= 2) {
+        caidas.add(religar);
+        renovarSessao().then(() => setTimeout(religar, 300));
+        return;
+      }
       if (tentativas === 4) erroLeitura(e); // só avisa se não voltar depois de algumas tentativas
       caidas.add(religar);
       timer = setTimeout(religar, Math.min(30000, 1500 * tentativas));
@@ -50,6 +56,22 @@ function escutar(abrir, aoDado) {
   return () => { parado = true; clearTimeout(timer); caidas.delete(religar); if (cancelar) cancelar(); };
 }
 const religarCaidas = () => [...caidas].forEach((f) => f());
+
+// Uma renovação por vez; se não der (conta apagada ou desativada), volta para a tela de login com um aviso claro.
+let renovando = null;
+function renovarSessao() {
+  if (!renovando) {
+    renovando = fb.renovarSessao()
+      .catch((e) => {
+        console.warn("Sessão não renovada:", e);
+        aoErro("Sua sessão expirou. Entre de novo com seu e-mail e senha.");
+        setTimeout(() => fb.sair(), 1500);
+        throw e;
+      })
+      .finally(() => setTimeout(() => { renovando = null; }, 60000));
+  }
+  return renovando.catch(() => {});
+}
 if (typeof window !== "undefined") {
   window.addEventListener("online", religarCaidas);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") religarCaidas(); });

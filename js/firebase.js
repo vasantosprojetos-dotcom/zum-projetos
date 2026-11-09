@@ -36,6 +36,8 @@ export function aoMudarUsuario(cb) {
 }
 export const entrar = (email, senha) => signInWithEmailAndPassword(auth, email, senha);
 export const sair = () => signOut(auth);
+// Pede ao Firebase um "crachá" novo de login. Falha se a conta foi apagada, desativada ou a senha trocada.
+export const renovarSessao = () => (auth.currentUser ? auth.currentUser.getIdToken(true) : Promise.reject(new Error("sem-usuario")));
 export const redefinirSenha = (email) => sendPasswordResetEmail(auth, email);
 
 export function novoId(col) {

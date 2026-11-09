@@ -1,7 +1,7 @@
 // Service worker: permite instalar o app no iPhone/computador e abrir sem internet.
 // Estratégia "rede primeiro": sempre busca a versão mais nova; usa a cópia guardada só se estiver offline.
 // Os DADOS não passam por aqui (ficam no Firebase), então atualizar o app nunca apaga nada.
-const CACHE = "zum-projetos-v14";
+const CACHE = "zum-projetos-v15";
 const ARQUIVOS = [
   "./", "index.html", "manifest.json", "css/estilo.css",
   "js/app.js", "js/firebase.js", "js/firebase-config.js", "js/dados.js", "js/backup.js", "js/util.js", "js/versao.js",
@@ -24,8 +24,10 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
+  // "no-cache": sempre confere com o servidor se o arquivo mudou (se não mudou, a resposta é mínima).
+  // Assim uma versão nova chega na hora, sem precisar de Cmd+Shift+R.
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request.url, { cache: "no-cache", credentials: "same-origin" })
       .then((r) => {
         if (r.ok) { const copia = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copia)); }
         return r;

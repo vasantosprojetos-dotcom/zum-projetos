@@ -218,14 +218,29 @@ fb.aoMudarUsuario(async (u) => {
 
 // ---------------- App instalável (PWA) ----------------
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  navigator.serviceWorker.register(`sw.js?v=${VERSAO}`).then((reg) => {
+  // Versão nova do app: aplica sozinha quando ninguém está digitando; senão, oferece o botão.
+  const podeRecarregar = () => !document.querySelector(".modal-fundo") && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "");
+  let aplicando = false;
+  const aplicarVersaoNova = () => {
+    if (aplicando) return;
+    if (podeRecarregar()) { aplicando = true; location.reload(); }
+    else avisar("Nova versão do app disponível", { rotulo: "Atualizar", fn: () => location.reload() });
+  };
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
     reg.addEventListener("updatefound", () => {
       const novo = reg.installing;
       novo?.addEventListener("statechange", () => {
-        if (novo.state === "installed" && navigator.serviceWorker.controller) {
-          avisar("Nova versão disponível", { rotulo: "Atualizar", fn: () => location.reload() });
+        if (novo.state === "activated" && navigator.serviceWorker.controller) {
+          if (document.visibilityState === "visible") aplicarVersaoNova();
+          else document.addEventListener("visibilitychange", function uma() {
+            if (document.visibilityState === "visible") { document.removeEventListener("visibilitychange", uma); aplicarVersaoNova(); }
+          });
         }
       });
     });
+    // Confere se há versão nova ao voltar para a aba e a cada 30 minutos
+    const conferir = () => reg.update().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") conferir(); });
+    setInterval(conferir, 30 * 60 * 1000);
   }).catch(() => {});
 }
