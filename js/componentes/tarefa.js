@@ -13,7 +13,8 @@ export function linhaTarefa(t, { mostrarProjeto = true, mostrarFase = false, mos
   if (mostrarProjeto && p) meta.push(`<span class="meta-projeto"><i style="background:${cor}"></i>${esc(p.nome)}</span>`);
   if (mostrarFase && t.fase) meta.push(`<span>${esc(t.fase)}</span>`);
   if (t.prazo && !feita) meta.push(`<span class="meta-prazo ${atrasada ? "atrasado" : ""}">${ICONES.calendario}${esc(rotuloPrazo(t.prazo))}</span>`);
-  if (mostrarResponsavel && t.responsavel && t.responsavel !== D.eu()?.email) meta.push(`<span class="meta-pessoa">${ICONES.pessoa}${esc(D.primeiroNome(t.responsavel))}</span>`);
+  const minha = !!t.responsavel && t.responsavel === D.eu()?.email;
+  const chip = mostrarResponsavel ? chipResponsavel(t, minha) : "";
   if (t.status === "naoSeAplica") meta.push(`<span>Não se aplica</span>`);
   else if (feita && t.concluidaEm) meta.push(`<span>Concluída em ${esc(dataCurta(t.concluidaEm.slice(0, 10)))}</span>`);
   if (t.status === "aguardando") meta.push(`<span class="selo-aguardando">Aguardando</span>`);
@@ -22,14 +23,44 @@ export function linhaTarefa(t, { mostrarProjeto = true, mostrarFase = false, mos
   if (t.notas) meta.push(`<span class="meta-nota" title="Tem anotações">${ICONES.nota}</span>`);
 
   return `
-    <div class="tarefa ${feita ? "feita" : ""} ${atrasada ? "atrasada" : ""}" data-id="${t.id}" style="--cor:${cor}">
+    <div class="tarefa ${feita ? "feita" : ""} ${atrasada ? "atrasada" : ""} ${minha && !feita ? "minha" : ""}" data-id="${t.id}" style="--cor:${cor}">
       <button type="button" class="check" data-acao="${feita ? "reabrir" : "concluir"}" aria-label="${feita ? "Reabrir" : "Concluir"} tarefa">${ICONES.check}</button>
       <button type="button" class="tarefa-corpo" data-acao="editar-tarefa">
+        ${chip}
         <span class="tarefa-titulo">${esc(t.titulo)}</span>
         ${meta.length ? `<span class="tarefa-meta">${meta.join("")}</span>` : ""}
       </button>
       ${feita ? "" : `<button type="button" class="botao-icone adiar" data-acao="adiar" aria-label="Adiar" title="Adiar">${ICONES.relogio}</button>`}
     </div>`;
+}
+
+// Cor fixa para cada pessoa (a mesma em todo o app), para reconhecer de longe.
+const CORES_PESSOA = ["#E8590C", "#7048E8", "#0C8599", "#C2255C", "#2F9E44", "#1971C2", "#B07D00", "#5C7CFA"];
+function corPessoa(email) {
+  let h = 0;
+  for (const c of email) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return CORES_PESSOA[h % CORES_PESSOA.length];
+}
+
+// O apoio às vezes vem como papel ("local", "Coordenação local"): mostra o nome da pessoa.
+function nomeApoio(t) {
+  const a = String(t.apoio || "").trim();
+  const n = a.toLowerCase();
+  if (n === "direcao" || n === "direção" || n === "direção (vanessa)") return "Vanessa";
+  if (n === "local" || n === "coordenação local") {
+    const c = D.equipeDoProjeto(t.projetoId).find((x) => x.papel !== "admin");
+    return c ? (c.nome || c.id).split(" ")[0] : "coordenação local";
+  }
+  return a;
+}
+
+// Etiqueta do responsável, em cima do título: "VOCÊ" bem marcado nas próprias tarefas, nome com cor nas dos outros.
+function chipResponsavel(t, minha) {
+  if (!t.responsavel) return `<span class="resp-chip sem">Sem responsável</span>`;
+  const nome = D.primeiroNome(t.responsavel) || t.responsavel;
+  const apoio = t.apoio ? `<span class="resp-apoio">+ apoio: ${esc(nomeApoio(t))}</span>` : "";
+  if (minha) return `<span class="resp-linha"><span class="resp-chip eu">${ICONES.pessoa}Sua tarefa</span>${apoio}</span>`;
+  return `<span class="resp-linha"><span class="resp-chip" style="--pc:${corPessoa(t.responsavel)}"><b>${esc(nome.charAt(0).toUpperCase())}</b>${esc(nome)}</span>${apoio}</span>`;
 }
 
 export function listaTarefas(lista, opcoes) {
